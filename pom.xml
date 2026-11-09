@@ -5,7 +5,7 @@
 
   <groupId>io.github.shridey</groupId>
   <artifactId>jdata-core</artifactId>
-  <version>0.1.0</version>
+  <version>0.1.1</version>
   <packaging>jar</packaging>
 
   <name>io.github.shridey:jdata-core</name>
@@ -69,7 +69,7 @@
           <argLine>
             --enable-native-access=jdata.core,ALL-UNNAMED
             --add-reads jdata.core=org.junit.jupiter.api
-            --add-opens jdata.core/io.github.shridey.jdata.core.column=org.junit.platform.commons,ALL-UNNAMED
+            --add-opens jdata.core/io.github.shridey.jdata.core.buffer=org.junit.platform.commons,ALL-UNNAMED
             --add-opens jdata.core/io.github.shridey.jdata.core.ffi=org.junit.platform.commons,ALL-UNNAMED
             --add-opens jdata.core/io.github.shridey.jdata.core=org.junit.platform.commons,ALL-UNNAMED
           </argLine>

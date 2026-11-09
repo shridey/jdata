@@ -1,8 +1,7 @@
 package io.github.shridey.jdata.core.ffi;
 
-import io.github.shridey.jdata.core.ArrowColumn;
-import io.github.shridey.jdata.core.ArrowType;
-import io.github.shridey.jdata.core.column.Float64Column;
+import io.github.shridey.jdata.core.DataType;
+import io.github.shridey.jdata.core.buffer.Float64Buffer;
 import org.junit.jupiter.api.Test;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -15,7 +14,7 @@ class FFIBridgeTest {
         try (Arena arena = Arena.ofConfined()) {
 
             // 1. Create native Java memory
-            Float64Column originalCol = Float64Column.allocate(arena, "sensor_data", 50);
+            Float64Buffer originalCol = Float64Buffer.allocate(arena, "sensor_data", 50);
             originalCol.set(0, 3.1415);
             originalCol.setNull(1);
 
@@ -25,11 +24,11 @@ class FFIBridgeTest {
 
             // 3. IMPORT: Read the C-Structs back into a generic ArrowColumn
             double value;
-            try (ArrowColumn importedCol = ArrowCImporter.importColumn(cArrayPtr, cSchemaPtr)) {
+            try (ImportedDataBuffer importedCol = ArrowCImporter.importBuffer(cArrayPtr, cSchemaPtr)) {
 
                 // 4. VERIFY: Ensure the Importer dynamically resolved everything correctly
                 assertEquals("sensor_data", importedCol.name());
-                assertEquals(ArrowType.FLOAT64, importedCol.type());
+                assertEquals(DataType.FLOAT64, importedCol.type());
                 assertEquals(50, importedCol.length());
 
                 // 5. VERIFY ZERO-COPY: Read from the imported column's reinterpreted MemorySegment

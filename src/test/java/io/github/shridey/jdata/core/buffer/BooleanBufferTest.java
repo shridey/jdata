@@ -1,16 +1,16 @@
-package io.github.shridey.jdata.core.column;
+package io.github.shridey.jdata.core.buffer;
 
 import org.junit.jupiter.api.Test;
 import java.lang.foreign.Arena;
 import static org.junit.jupiter.api.Assertions.*;
 
-class BooleanColumnTest {
+class BooleanBufferTest {
 
     @Test
     void testBooleanBitPacking() {
         try (Arena arena = Arena.ofConfined()) {
             // Allocate 10 elements (requires 2 bytes of data buffer)
-            BooleanColumn col = BooleanColumn.allocate(arena, "flags", 10);
+            BooleanBuffer col = BooleanBuffer.allocate(arena, "flags", 10);
 
             // Set two bits in the same byte
             col.set(0, true);

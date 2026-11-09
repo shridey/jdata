@@ -1,6 +1,6 @@
 package io.github.shridey.jdata.core.ffi;
 
-import io.github.shridey.jdata.core.ArrowColumn;
+import io.github.shridey.jdata.core.DataBuffer;
 import io.github.shridey.jdata.core.internal.ArrowCStructs;
 
 import java.lang.foreign.Arena;
@@ -13,7 +13,7 @@ import java.lang.invoke.MethodHandles;
 
 /**
  * Bridges Java's off-heap memory to the outside world.
- * This utility takes an {@link ArrowColumn} and populates standard C-structs,
+ * This utility takes an {@link DataBuffer} and populates standard C-structs,
  * allowing native languages (Python, Rust, C++) to read jdata's memory without copying bytes.
  *
  * @version 1.0
@@ -31,7 +31,7 @@ public final class ArrowCExporter {
      * @param structArena The arena that will manage the lifecycle of the C-struct itself.
      * @return The memory address of the populated ArrowArray struct.
      */
-    public static MemorySegment exportArray(ArrowColumn column, Arena structArena) {
+    public static MemorySegment exportArray(DataBuffer column, Arena structArena) {
         // Allocate the C-struct in off-heap memory
         MemorySegment struct = structArena.allocate(ArrowCStructs.ARROW_ARRAY_LAYOUT);
 
@@ -68,7 +68,7 @@ public final class ArrowCExporter {
      * @param structArena The arena that will manage the lifecycle of the C-struct.
      * @return The memory address of the populated ArrowSchema struct.
      */
-    public static MemorySegment exportSchema(ArrowColumn column, Arena structArena) {
+    public static MemorySegment exportSchema(DataBuffer column, Arena structArena) {
         MemorySegment struct = structArena.allocate(ArrowCStructs.ARROW_SCHEMA_LAYOUT);
 
         // Fetch the exact C-Data format string defined in our ArrowType enum

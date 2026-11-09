@@ -1,19 +1,19 @@
-package io.github.shridey.jdata.core.column;
+package io.github.shridey.jdata.core.buffer;
 
-import io.github.shridey.jdata.core.ArrowType;
+import io.github.shridey.jdata.core.DataType;
 import org.junit.jupiter.api.Test;
 import java.lang.foreign.Arena;
 import static org.junit.jupiter.api.Assertions.*;
 
-class PrimitiveColumnTest {
+class PrimitiveBufferTest {
 
     @Test
     void testFloat64AllocationAndValues() {
         try (Arena arena = Arena.ofConfined()) {
-            Float64Column col = Float64Column.allocate(arena, "prices", 100);
+            Float64Buffer col = Float64Buffer.allocate(arena, "prices", 100);
 
             assertEquals("prices", col.name());
-            assertEquals(ArrowType.FLOAT64, col.type());
+            assertEquals(DataType.FLOAT64, col.type());
             assertEquals(100, col.length());
 
             // Test writing and reading exactly at hardware byte boundaries
@@ -28,7 +28,7 @@ class PrimitiveColumnTest {
     @Test
     void testAbstractColumnNullStateLogic() {
         try (Arena arena = Arena.ofConfined()) {
-            Int32Column col = Int32Column.allocate(arena, "ids", 10);
+            Int32Buffer col = Int32Buffer.allocate(arena, "ids", 10);
 
             // 1. Initial state should have 0 nulls (0xFF initialization)
             assertEquals(0, col.nullCount());

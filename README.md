@@ -37,12 +37,13 @@ Add the dependency to your `pom.xml`:
 Create heavily optimized off-heap columns with built-in null-bitmap management.
 
 ```java
-import io.github.shridey.jdata.core.column.Float64Column;
+import io.github.shridey.jdata.core.buffer.Float64Buffer;
+import io.github.shridey.jdata.core.buffer.Float64Column;
 
 public class CoreExample {
     static void main(String[] args) {
         // Allocate a column for 1,000 double-precision floats
-        try (Float64Column col = Float64Column.allocate("prices", 1000)) {
+        try (Float64Buffer col = Float64Buffer.allocate("prices", 1000)) {
 
             col.set(0, 199.99);
             col.setNull(1); // Modifies the native validity bitmap
@@ -67,7 +68,7 @@ import java.lang.foreign.MemorySegment;
 public class FFIExample {
     static void main(String[] args) {
         try (Arena arena = Arena.ofConfined();
-            Float64Column col = Float64Column.allocate("data", 500)) {
+            Float64Buffer col = Float64Buffer.allocate("data", 500)) {
 
             // 1. Allocate raw C-structs for ArrowArray and ArrowSchema
             MemorySegment arrayPtr = ArrowCExporter.allocateArray(arena);
