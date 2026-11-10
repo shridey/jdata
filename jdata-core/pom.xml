@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.github.shridey</groupId>
+    <artifactId>jdata</artifactId>
+    <version>0.2.0</version>
+  </parent>
+
+  <artifactId>jdata-core</artifactId>
+  <packaging>jar</packaging>
+  <name>io.github.shridey:jdata-core</name>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.6.0</version>
+        <configuration>
+          <argLine>
+            --enable-native-access=jdata.core,ALL-UNNAMED
+            --add-reads jdata.core=org.junit.jupiter.api
+            --add-opens jdata.core/io.github.shridey.jdata.core.buffer=org.junit.platform.commons,ALL-UNNAMED
+            --add-opens jdata.core/io.github.shridey.jdata.core.ffi=org.junit.platform.commons,ALL-UNNAMED
+            --add-opens jdata.core/io.github.shridey.jdata.core=org.junit.platform.commons,ALL-UNNAMED
+          </argLine>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

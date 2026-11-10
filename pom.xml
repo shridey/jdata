@@ -4,13 +4,13 @@
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>io.github.shridey</groupId>
-  <artifactId>jdata-core</artifactId>
-  <version>0.1.1</version>
-  <packaging>jar</packaging>
+  <artifactId>jdata</artifactId>
+  <version>0.2.0</version>
+  <packaging>pom</packaging>
 
-  <name>io.github.shridey:jdata-core</name>
-  <description>An off-heap Apache Arrow memory foundation for Java using the FFM API.</description>
-  <url>https://github.com/shridey/jdata-core</url>
+  <name>io.github.shridey:jdata</name>
+  <description>A high-performance, off-heap Apache Arrow memory foundation and zero-allocation compute ecosystem for Java.</description>
+  <url>https://github.com/shridey/jdata</url>
 
   <licenses>
     <license>
@@ -30,15 +30,19 @@
   </developers>
 
   <scm>
-    <connection>scm:git:git://github.com/shridey/jdata-core.git</connection>
-    <developerConnection>scm:git:ssh://github.com:shridey/jdata-core.git</developerConnection>
-    <url>https://github.com/shridey/jdata-core/tree/main</url>
+    <connection>scm:git:git://github.com/shridey/jdata.git</connection>
+    <developerConnection>scm:git:ssh://github.com:shridey/jdata.git</developerConnection>
+    <url>https://github.com/shridey/jdata/tree/main</url>
   </scm>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.release>25</maven.compiler.release>
   </properties>
+
+  <modules>
+    <module>jdata-core</module>
+  </modules>
 
   <dependencies>
     <!-- JUnit 6 API and Engine -->
@@ -59,20 +63,6 @@
         <extensions>true</extensions>
         <configuration>
           <publishingServerId>central</publishingServerId>
-        </configuration>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-surefire-plugin</artifactId>
-        <version>3.6.0</version>
-        <configuration>
-          <argLine>
-            --enable-native-access=jdata.core,ALL-UNNAMED
-            --add-reads jdata.core=org.junit.jupiter.api
-            --add-opens jdata.core/io.github.shridey.jdata.core.buffer=org.junit.platform.commons,ALL-UNNAMED
-            --add-opens jdata.core/io.github.shridey.jdata.core.ffi=org.junit.platform.commons,ALL-UNNAMED
-            --add-opens jdata.core/io.github.shridey.jdata.core=org.junit.platform.commons,ALL-UNNAMED
-          </argLine>
         </configuration>
       </plugin>
       <plugin>

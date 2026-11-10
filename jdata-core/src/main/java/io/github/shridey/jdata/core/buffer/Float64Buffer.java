@@ -1,0 +1,166 @@
+package io.github.shridey.jdata.core.buffer;
+
+import io.github.shridey.jdata.core.DataType;
+import io.github.shridey.jdata.core.internal.ArrowMemoryAllocator;
+import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+
+/**
+ * A sealed, read-only Arrow column for 64-bit floating-point numbers (doubles).
+ * Utilizes hardware-aligned contiguous memory to enable SIMD vectorization.
+ */
+public final class Float64Buffer extends AbstractDataBuffer {
+
+    // The physical 8-byte-per-element data block (Buffer 1 in Arrow spec)
+    private final MemorySegment dataBuffer;
+
+    // Package-private constructor: Only Float64BufferBuilder or allocate() can create this.
+    Float64Buffer(String name, Arena arena, long length, long offset,
+                  MemorySegment validityBitmap, MemorySegment dataBuffer) {
+        super(name, arena, length, offset, validityBitmap);
+        this.dataBuffer = dataBuffer;
+    }
+
+    /**
+     * Allocates a fixed-size buffer instantly.
+     * Used when the exact number of rows is known prior to allocation.
+     */
+    public static Float64Buffer allocate(Arena arena, String name, long length) {
+        long bitmapBytes = (length + 7) / 8;
+        long dataBytes = length * ValueLayout.JAVA_DOUBLE.byteSize();
+
+        MemorySegment validityBitmap = ArrowMemoryAllocator.allocateAligned(arena, bitmapBytes);
+        MemorySegment dataBuffer = ArrowMemoryAllocator.allocateAligned(arena, dataBytes);
+
+        // Pass 0 as the absolute physical offset for new allocations
+        Float64Buffer buffer = new Float64Buffer(name, arena, length, 0, validityBitmap, dataBuffer);
+        buffer.setAllValid(); // Fill bitmap with 1s (all valid)
+
+        return buffer;
+    }
+
+    public void set(long index, double value) {
+        checkBounds(index); // Security check to prevent memory corruption
+
+        // Convert logical row index to a physical memory byte offset
+        long physicalIndex = index + this.offset;
+        long byteOffset = physicalIndex * ValueLayout.JAVA_DOUBLE.byteSize();
+        dataBuffer.set(ValueLayout.JAVA_DOUBLE, byteOffset, value);
+
+        markValid(index); // Instruct the parent class to update the null tracker
+    }
+
+    public double get(long index) {
+        checkBounds(index);
+        long physicalIndex = index + this.offset;
+        long byteOffset = physicalIndex * ValueLayout.JAVA_DOUBLE.byteSize();
+        return dataBuffer.get(ValueLayout.JAVA_DOUBLE, byteOffset);
+    }
+
+    public void copyBlock(Float64Buffer source, long srcIndex, long destIndex, long length) {
+        if (length <= 0) return;
+
+        // Ensure we don't accidentally read/write outside logical boundaries
+        if (destIndex + length > this.length) throw new IndexOutOfBoundsException("Destination bounds exceeded");
+        if (srcIndex + length > source.length) throw new IndexOutOfBoundsException("Source bounds exceeded");
+
+        long byteSize = ValueLayout.JAVA_DOUBLE.byteSize();
+
+        // Account for logical offsets in both source and destination buffers
+        long srcPhysical = srcIndex + source.offset;
+        long destPhysical = destIndex + this.offset;
+
+        long srcByteOffset = srcPhysical * byteSize;
+        long destByteOffset = destPhysical * byteSize;
+        long copyBytes = length * byteSize;
+
+        // 1. Instantly copy the raw 64-bit double bytes using OS-level intrinsic speed
+        MemorySegment.copy(source.dataBuffer, srcByteOffset, this.dataBuffer, destByteOffset, copyBytes);
+
+        // 2. Synchronize the validity bitmap bit-by-bit
+        for (long i = 0; i < length; i++) {
+            if (source.isNull(srcIndex + i)) {
+                this.setNull(destIndex + i);
+            } else {
+                this.markValid(destIndex + i);
+            }
+        }
+    }
+
+    /**
+     * Ingestion: Dumps a Java double[] array into this buffer instantly.
+     */
+    public void copyFrom(double[] source) throws IllegalArgumentException {
+        if (source.length != this.length) {
+            throw new IllegalArgumentException("Array length must exactly match buffer length.");
+        }
+
+        // If this is a sliced buffer, bulk copying would overwrite memory outside logical boundaries.
+        if (this.offset != 0) {
+            for (int i = 0; i < source.length; i++) {
+                this.set(i, source[i]);
+            }
+            return;
+        }
+
+        MemorySegment heapSegment = MemorySegment.ofArray(source);
+        MemorySegment.copy(heapSegment, 0, this.dataBuffer, 0, (long) source.length * ValueLayout.JAVA_DOUBLE.byteSize());
+        setAllValid();
+    }
+
+    /**
+     * Exfiltration: Dumps this off-heap buffer back into a standard Java double[] array.
+     */
+    public double[] toArray() throws IllegalStateException {
+        if (this.length > Integer.MAX_VALUE) {
+            throw new IllegalStateException("Buffer length is too large to fit in a Java array.");
+        }
+
+        double[] target = new double[(int) this.length];
+
+        if (this.offset == 0) {
+            // Fast path for standard, unsliced buffers
+            MemorySegment heapSegment = MemorySegment.ofArray(target);
+            MemorySegment.copy(this.dataBuffer, 0, heapSegment, 0, this.length * ValueLayout.JAVA_DOUBLE.byteSize());
+        } else {
+            // Slow path for sliced buffers to prevent reading out-of-bounds bytes
+            for (int i = 0; i < this.length; i++) {
+                target[i] = this.get(i);
+            }
+        }
+
+        return target;
+    }
+
+    @Override
+    public Float64BufferBuilder toBuilder(Arena arena) {
+        Float64BufferBuilder builder = new Float64BufferBuilder(arena, this.name, this.length);
+        return builder.appendBlock(this, 0, this.length);
+    }
+
+    @Override
+    public Float64Buffer slice(long sliceOffset, long sliceLength) {
+        if (sliceOffset < 0 || sliceLength < 0 || sliceOffset + sliceLength > this.length) {
+            throw new IndexOutOfBoundsException("Invalid slice parameters");
+        }
+        // Calculate the new absolute hardware offset
+        long absoluteOffset = this.offset + sliceOffset;
+
+        // Return a zero-copy view wrapping the EXACT SAME MemorySegments
+        return new Float64Buffer(this.name, this.arena, sliceLength, absoluteOffset,
+                this.validityBitmap, this.dataBuffer);
+    }
+
+    @Override public DataType type() { return DataType.FLOAT64; }
+    @Override public int bufferCount() { return 2; }
+
+    @Override
+    public MemorySegment buffer(int index) throws IndexOutOfBoundsException {
+        return switch (index) {
+            case 0 -> super.buffer(0); // Safely returns the validity bitmap
+            case 1 -> dataBuffer;      // Returns the physical 64-bit doubles
+            default -> throw new IndexOutOfBoundsException("Float64Buffer has exactly 2 buffers.");
+        };
+    }
+}
