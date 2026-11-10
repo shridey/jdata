@@ -1,11 +1,15 @@
 package io.github.shridey.jdata.core.ffi;
 
 import io.github.shridey.jdata.core.DataType;
-import io.github.shridey.jdata.core.buffer.Float64Buffer;
-import io.github.shridey.jdata.core.buffer.Float64BufferBuilder;
+import io.github.shridey.jdata.core.buffer.*;
+import io.github.shridey.jdata.core.layout.Field;
+import io.github.shridey.jdata.core.layout.Schema;
+import io.github.shridey.jdata.core.layout.Table;
 import org.junit.jupiter.api.Test;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 class FFIBridgeTest {
@@ -109,6 +113,61 @@ class FFIBridgeTest {
             assertEquals(2.2, rebuilt.get(0));
             assertEquals(3.3, rebuilt.get(1));
             assertEquals(4.4, rebuilt.get(2));
+        }
+    }
+
+    @Test
+    void testExportImportTableRoundtrip() throws Exception {
+        try (Arena arena = Arena.ofConfined()) {
+            // 1. Allocate sample columns with data
+            Int32Buffer idCol = Int32Buffer.allocate(arena, "id", 3);
+            idCol.set(0, 10);
+            idCol.set(1, 20);
+            idCol.set(2, 30);
+
+            Float64Buffer valCol = Float64Buffer.allocate(arena, "value", 3);
+            valCol.set(0, 100.5);
+            valCol.set(1, 200.0);
+            valCol.set(2, 300.25);
+
+            // 2. Define Schema and build the Table
+            Schema schema = new Schema(List.of(
+                    new Field("id", DataType.INT32, true),
+                    new Field("value", DataType.FLOAT64, true)
+            ));
+
+            try (Table originalTable = new Table(schema, List.of(idCol, valCol))) {
+
+                // 3. Export Table into Arrow C-Struct Envelopes (+s struct format)
+                MemorySegment arrayPtr = ArrowCExporter.exportTableArray(originalTable, arena);
+                MemorySegment schemaPtr = ArrowCExporter.exportTableSchema(originalTable, arena);
+
+                // 4. Import the Table back from the C-Struct pointers
+                try (Table importedTable = ArrowCImporter.importTable(arrayPtr, schemaPtr)) {
+
+                    // 5. Verify structural metadata alignment
+                    assertEquals(3, importedTable.rowCount());
+                    assertEquals(2, importedTable.columnCount());
+
+                    assertEquals("id", importedTable.schema().getField(0).name());
+                    assertEquals(DataType.INT32, importedTable.schema().getField(0).type());
+
+                    assertEquals("value", importedTable.schema().getField(1).name());
+                    assertEquals(DataType.FLOAT64, importedTable.schema().getField(1).type());
+
+                    // 6. Verify data integrity across imported columns using ImportedDataBuffer getters
+                    ImportedDataBuffer importedIdCol = (ImportedDataBuffer) importedTable.getColumn(0);
+                    ImportedDataBuffer importedValCol = (ImportedDataBuffer) importedTable.getColumn(1);
+
+                    assertEquals(10, importedIdCol.getInt(0));
+                    assertEquals(20, importedIdCol.getInt(1));
+                    assertEquals(30, importedIdCol.getInt(2));
+
+                    assertEquals(100.5, importedValCol.getDouble(0));
+                    assertEquals(200.0, importedValCol.getDouble(1));
+                    assertEquals(300.25, importedValCol.getDouble(2));
+                }
+            }
         }
     }
 }

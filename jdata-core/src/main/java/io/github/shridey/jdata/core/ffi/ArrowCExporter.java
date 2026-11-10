@@ -1,6 +1,7 @@
 package io.github.shridey.jdata.core.ffi;
 
 import io.github.shridey.jdata.core.DataBuffer;
+import io.github.shridey.jdata.core.layout.Table;
 import io.github.shridey.jdata.core.internal.ArrowCStructs;
 
 import java.lang.foreign.Arena;
@@ -15,17 +16,74 @@ public final class ArrowCExporter {
 
     private ArrowCExporter() {}
 
-    public static MemorySegment exportArray(DataBuffer column, Arena structArena) {
+    public static MemorySegment exportTableArray(Table table, Arena structArena) {
         MemorySegment struct = structArena.allocate(ArrowCStructs.ARROW_ARRAY_LAYOUT);
 
+        struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_LENGTH, table.rowCount());
+        struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_NULL_COUNT, 0L); // Top-level tables don't have row nulls
+        struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_OFFSET, 0L);
+
+        // A Table (Struct) requires exactly 1 buffer: a validity bitmap. (We set it to NULL).
+        struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_N_BUFFERS, 1L);
+        MemorySegment buffersPtrArray = structArena.allocate(ValueLayout.ADDRESS, 1);
+        buffersPtrArray.setAtIndex(ValueLayout.ADDRESS, 0, MemorySegment.NULL);
+        struct.set(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_BUFFERS, buffersPtrArray);
+
+        // Populate the children array with pointers to the individual column Arrays
+        int numCols = table.columnCount();
+        struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_N_CHILDREN, numCols);
+
+        if (numCols > 0) {
+            MemorySegment childrenPtrArray = structArena.allocate(ValueLayout.ADDRESS, numCols);
+            for (int i = 0; i < numCols; i++) {
+                MemorySegment childArray = exportArray(table.getColumn(i), structArena);
+                childrenPtrArray.setAtIndex(ValueLayout.ADDRESS, i, childArray);
+            }
+            struct.set(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_CHILDREN, childrenPtrArray);
+        } else {
+            struct.set(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_CHILDREN, MemorySegment.NULL);
+        }
+
+        struct.set(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_DICTIONARY, MemorySegment.NULL);
+        struct.set(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_RELEASE, createArrayReleaseCallback(structArena));
+
+        return struct;
+    }
+
+    public static MemorySegment exportTableSchema(Table table, Arena structArena) {
+        MemorySegment struct = structArena.allocate(ArrowCStructs.ARROW_SCHEMA_LAYOUT);
+
+        // Arrow format for a Struct (Table/RecordBatch) is exactly "+s"
+        struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_FORMAT, structArena.allocateFrom("+s"));
+        struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_NAME, structArena.allocateFrom("table"));
+        struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.SCHEMA_OFFSET_FLAGS, 0L);
+
+        // Populate the children array with pointers to the individual column Schemas
+        int numCols = table.columnCount();
+        struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.SCHEMA_OFFSET_N_CHILDREN, numCols);
+
+        if (numCols > 0) {
+            MemorySegment childrenPtrArray = structArena.allocate(ValueLayout.ADDRESS, numCols);
+            for (int i = 0; i < numCols; i++) {
+                MemorySegment childSchema = exportSchema(table.getColumn(i), structArena);
+                childrenPtrArray.setAtIndex(ValueLayout.ADDRESS, i, childSchema);
+            }
+            struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_CHILDREN, childrenPtrArray);
+        } else {
+            struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_CHILDREN, MemorySegment.NULL);
+        }
+
+        struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_DICTIONARY, MemorySegment.NULL);
+        struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_RELEASE, createSchemaReleaseCallback(structArena));
+
+        return struct;
+    }
+
+    public static MemorySegment exportArray(DataBuffer column, Arena structArena) {
+        MemorySegment struct = structArena.allocate(ArrowCStructs.ARROW_ARRAY_LAYOUT);
         struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_LENGTH, column.length());
         struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_NULL_COUNT, column.nullCount());
-
-        // 1. THIS IS THE CRITICAL FIX FOR ZERO-COPY FFI SLICING!
-        // We write the buffer's logical offset directly into the C-struct.
-        // Rust/Python/C++ will read this and automatically shift their pointers.
         struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_OFFSET, column.offset());
-
         struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_N_BUFFERS, column.bufferCount());
         struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_N_CHILDREN, 0L);
 

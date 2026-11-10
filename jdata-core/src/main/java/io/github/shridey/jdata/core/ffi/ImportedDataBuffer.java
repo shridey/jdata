@@ -89,6 +89,71 @@ public final class ImportedDataBuffer extends AbstractDataBuffer implements Auto
                 this.buffers, this.arrayPtr, this.releaseFuncPtr);
     }
 
+    public int getInt(long index) {
+        if (type != DataType.INT32) throw new IllegalStateException("Buffer is not INT32, is " + type);
+        long physicalIndex = offset + index;
+        return buffers[1].get(ValueLayout.JAVA_INT, physicalIndex * ValueLayout.JAVA_INT.byteSize());
+    }
+
+    public double getDouble(long index) {
+        if (type != DataType.FLOAT64) throw new IllegalStateException("Buffer is not FLOAT64, is " + type);
+        long physicalIndex = offset + index;
+        return buffers[1].get(ValueLayout.JAVA_DOUBLE, physicalIndex * ValueLayout.JAVA_DOUBLE.byteSize());
+    }
+
+    public long getLong(long index) {
+        if (type != DataType.INT64) throw new IllegalStateException("Buffer is not INT64, is " + type);
+        long physicalIndex = offset + index;
+        return buffers[1].get(ValueLayout.JAVA_LONG, physicalIndex * ValueLayout.JAVA_LONG.byteSize());
+    }
+
+    public float getFloat(long index) {
+        if (type != DataType.FLOAT32) throw new IllegalStateException("Buffer is not FLOAT32, is " + type);
+        long physicalIndex = offset + index;
+        return buffers[1].get(ValueLayout.JAVA_FLOAT, physicalIndex * ValueLayout.JAVA_FLOAT.byteSize());
+    }
+
+    /**
+     * Retrieves an imported boolean value at the specified index, respecting the logical offset and bit-packing.
+     */
+    public boolean getBoolean(long index) {
+        if (type != DataType.BOOLEAN) throw new IllegalStateException("Buffer is not BOOLEAN, is " + type);
+
+        long physicalIndex = offset + index;
+        long byteIndex = physicalIndex / 8;
+        int bitOffset = (int) (physicalIndex % 8);
+
+        // Boolean data is stored in the first data buffer (index 1)
+        byte b = buffers[1].get(ValueLayout.JAVA_BYTE, byteIndex);
+        return ((b >> bitOffset) & 1) == 1;
+    }
+
+    /**
+     * Retrieves an imported UTF-8 string value at the specified index, respecting the logical offset.
+     */
+    public String getString(long index) {
+        if (type != DataType.UTF8) throw new IllegalStateException("Buffer is not UTF8, is " + type);
+
+        long physicalIndex = offset + index;
+        long offsetByteSize = ValueLayout.JAVA_INT.byteSize();
+
+        // Offset buffer is at index 1, data buffer is at index 2
+        MemorySegment offsetsBuffer = buffers[1];
+        MemorySegment dataBuffer = buffers[2];
+
+        int startByteOffset = offsetsBuffer.get(ValueLayout.JAVA_INT, physicalIndex * offsetByteSize);
+        int endByteOffset = offsetsBuffer.get(ValueLayout.JAVA_INT, (physicalIndex + 1) * offsetByteSize);
+
+        int stringLength = endByteOffset - startByteOffset;
+        if (stringLength <= 0) {
+            return "";
+        }
+
+        // Slice the exact UTF-8 byte range from the data buffer
+        MemorySegment stringSlice = dataBuffer.asSlice(startByteOffset, stringLength);
+        return new String(stringSlice.toArray(ValueLayout.JAVA_BYTE), java.nio.charset.StandardCharsets.UTF_8);
+    }
+
     @Override
     public void close() {
         if (!releaseFuncPtr.equals(MemorySegment.NULL)) {
