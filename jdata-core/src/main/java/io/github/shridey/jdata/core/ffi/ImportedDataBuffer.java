@@ -7,6 +7,8 @@ import io.github.shridey.jdata.core.internal.ArrowCStructs;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 
 /**
  * A concrete, universal buffer imported from a foreign runtime.
@@ -20,18 +22,20 @@ public final class ImportedDataBuffer extends AbstractDataBuffer implements Auto
     private final MemorySegment arrayPtr;
     private final MemorySegment releaseFuncPtr;
 
-    // 1. Add offset to constructor
-    ImportedDataBuffer(String name, DataType type, long length, long offset,
+    ImportedDataBuffer(String name, DataType type, long length, long offset, long importedNullCount,
                        MemorySegment[] buffers, MemorySegment arrayPtr,
                        MemorySegment releaseFuncPtr) {
-        // Pass offset up to the parent validity bitmap manager
-        super(name, Arena.global(), length, offset, buffers[0]);
+        super(name, Arena.global(), length, offset, buffers.length > 0 ? buffers[0] : MemorySegment.NULL);
         this.type = type;
         this.buffers = buffers;
         this.arrayPtr = arrayPtr;
         this.releaseFuncPtr = releaseFuncPtr;
 
-        this.nullCount();
+        if (importedNullCount >= 0) {
+            this.nullCount = importedNullCount;
+        } else {
+            this.nullCount();
+        }
     }
 
     @Override
@@ -53,8 +57,7 @@ public final class ImportedDataBuffer extends AbstractDataBuffer implements Auto
     }
 
     @Override
-    public Object toBuilder(Arena arena) {
-        // Dynamically route the foreign memory to the correct typed builder
+    public AbstractBufferBuilder toBuilder(Arena arena) {
         return switch (this.type) {
             case INT32 -> new Int32BufferBuilder(arena, this.name, this.length).appendImportedBlock(this, 0, this.length);
             case INT64 -> new Int64BufferBuilder(arena, this.name, this.length).appendImportedBlock(this, 0, this.length);
@@ -62,7 +65,6 @@ public final class ImportedDataBuffer extends AbstractDataBuffer implements Auto
             case FLOAT64 -> new Float64BufferBuilder(arena, this.name, this.length).appendImportedBlock(this, 0, this.length);
             case BOOLEAN -> new BooleanBufferBuilder(arena, this.name, this.length).appendImportedBlock(this, 0, this.length);
             case UTF8 -> {
-                // Determine raw text footprint by applying the physical offset
                 long absoluteEndIndex = this.offset + this.length;
                 long startOffsetByteIndex = this.offset * ValueLayout.JAVA_INT.byteSize();
                 long endOffsetByteIndex = absoluteEndIndex * ValueLayout.JAVA_INT.byteSize();
@@ -70,7 +72,7 @@ public final class ImportedDataBuffer extends AbstractDataBuffer implements Auto
                 int startByte = this.buffers[1].get(ValueLayout.JAVA_INT, startOffsetByteIndex);
                 int endByte = this.buffers[1].get(ValueLayout.JAVA_INT, endOffsetByteIndex);
 
-                yield new UTF8BufferBuilder(arena, this.name, this.length, (endByte - startByte))
+                yield new UTF8BufferBuilder(arena, this.name, this.length, endByte - startByte)
                         .appendImportedBlock(this, 0, this.length);
             }
             default -> throw new UnsupportedOperationException("toBuilder() not yet supported for imported type: " + this.type);
@@ -79,36 +81,39 @@ public final class ImportedDataBuffer extends AbstractDataBuffer implements Auto
 
     @Override
     public ImportedDataBuffer slice(long sliceOffset, long sliceLength) {
-        if (sliceOffset < 0 || sliceLength < 0 || sliceOffset + sliceLength > this.length) {
-            throw new IndexOutOfBoundsException("Invalid slice parameters");
-        }
+        Objects.checkFromIndexSize(sliceOffset, sliceLength, this.length);
         long absoluteOffset = this.offset + sliceOffset;
+        long sliceNullCount = (this.nullCount == 0 || sliceLength == 0) ? 0L : -1L;
 
-        // Return a zero-copy view of the foreign memory.
-        return new ImportedDataBuffer(this.name, this.type, sliceLength, absoluteOffset,
-                this.buffers, this.arrayPtr, this.releaseFuncPtr);
+        // Slices are non-owning views: pass NULL for arrayPtr and releaseFuncPtr so closing a slice does not free the parent.
+        return new ImportedDataBuffer(this.name, this.type, sliceLength, absoluteOffset, sliceNullCount,
+                this.buffers, MemorySegment.NULL, MemorySegment.NULL);
     }
 
     public int getInt(long index) {
         if (type != DataType.INT32) throw new IllegalStateException("Buffer is not INT32, is " + type);
+        checkBounds(index);
         long physicalIndex = offset + index;
         return buffers[1].get(ValueLayout.JAVA_INT, physicalIndex * ValueLayout.JAVA_INT.byteSize());
     }
 
     public double getDouble(long index) {
         if (type != DataType.FLOAT64) throw new IllegalStateException("Buffer is not FLOAT64, is " + type);
+        checkBounds(index);
         long physicalIndex = offset + index;
         return buffers[1].get(ValueLayout.JAVA_DOUBLE, physicalIndex * ValueLayout.JAVA_DOUBLE.byteSize());
     }
 
     public long getLong(long index) {
         if (type != DataType.INT64) throw new IllegalStateException("Buffer is not INT64, is " + type);
+        checkBounds(index);
         long physicalIndex = offset + index;
         return buffers[1].get(ValueLayout.JAVA_LONG, physicalIndex * ValueLayout.JAVA_LONG.byteSize());
     }
 
     public float getFloat(long index) {
         if (type != DataType.FLOAT32) throw new IllegalStateException("Buffer is not FLOAT32, is " + type);
+        checkBounds(index);
         long physicalIndex = offset + index;
         return buffers[1].get(ValueLayout.JAVA_FLOAT, physicalIndex * ValueLayout.JAVA_FLOAT.byteSize());
     }
@@ -118,14 +123,14 @@ public final class ImportedDataBuffer extends AbstractDataBuffer implements Auto
      */
     public boolean getBoolean(long index) {
         if (type != DataType.BOOLEAN) throw new IllegalStateException("Buffer is not BOOLEAN, is " + type);
+        checkBounds(index);
 
         long physicalIndex = offset + index;
-        long byteIndex = physicalIndex / 8;
-        int bitOffset = (int) (physicalIndex % 8);
+        long byteIndex = physicalIndex >>> 3;
+        int bitOffset = (int) (physicalIndex & 7L);
 
-        // Boolean data is stored in the first data buffer (index 1)
         byte b = buffers[1].get(ValueLayout.JAVA_BYTE, byteIndex);
-        return ((b >> bitOffset) & 1) == 1;
+        return ((b >>> bitOffset) & 1) == 1;
     }
 
     /**
@@ -133,35 +138,41 @@ public final class ImportedDataBuffer extends AbstractDataBuffer implements Auto
      */
     public String getString(long index) {
         if (type != DataType.UTF8) throw new IllegalStateException("Buffer is not UTF8, is " + type);
+        checkBounds(index);
+        if (isNull(index)) {
+            return null;
+        }
 
         long physicalIndex = offset + index;
-        long offsetByteSize = ValueLayout.JAVA_INT.byteSize();
+        long startOffsetByteIndex = physicalIndex * ValueLayout.JAVA_INT.byteSize();
 
-        // Offset buffer is at index 1, data buffer is at index 2
         MemorySegment offsetsBuffer = buffers[1];
         MemorySegment dataBuffer = buffers[2];
 
-        int startByteOffset = offsetsBuffer.get(ValueLayout.JAVA_INT, physicalIndex * offsetByteSize);
-        int endByteOffset = offsetsBuffer.get(ValueLayout.JAVA_INT, (physicalIndex + 1) * offsetByteSize);
+        int startByteOffset = offsetsBuffer.get(ValueLayout.JAVA_INT, startOffsetByteIndex);
+        int endByteOffset = offsetsBuffer.get(ValueLayout.JAVA_INT, startOffsetByteIndex + ValueLayout.JAVA_INT.byteSize());
 
         int stringLength = endByteOffset - startByteOffset;
         if (stringLength <= 0) {
             return "";
         }
 
-        // Slice the exact UTF-8 byte range from the data buffer
-        MemorySegment stringSlice = dataBuffer.asSlice(startByteOffset, stringLength);
-        return new String(stringSlice.toArray(ValueLayout.JAVA_BYTE), java.nio.charset.StandardCharsets.UTF_8);
+        byte[] bytes = new byte[stringLength];
+        MemorySegment.copy(dataBuffer, ValueLayout.JAVA_BYTE, startByteOffset, bytes, 0, stringLength);
+        return new String(bytes, StandardCharsets.UTF_8);
     }
 
     @Override
     public void close() {
-        if (!releaseFuncPtr.equals(MemorySegment.NULL)) {
-            try {
-                ArrowCImporter.NATIVE_RELEASE_CALL.invokeExact(releaseFuncPtr, arrayPtr);
-                arrayPtr.set(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_RELEASE, MemorySegment.NULL);
-            } catch (Throwable t) {
-                throw new RuntimeException("Failed to invoke native Arrow release callback", t);
+        if (!arrayPtr.equals(MemorySegment.NULL) && !releaseFuncPtr.equals(MemorySegment.NULL)) {
+            MemorySegment liveRelease = arrayPtr.get(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_RELEASE);
+            if (!liveRelease.equals(MemorySegment.NULL)) {
+                try {
+                    ArrowCImporter.NATIVE_RELEASE_CALL.invokeExact(liveRelease, arrayPtr);
+                    arrayPtr.set(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_RELEASE, MemorySegment.NULL);
+                } catch (Throwable t) {
+                    throw new RuntimeException("Failed to invoke native Arrow release callback", t);
+                }
             }
         }
     }

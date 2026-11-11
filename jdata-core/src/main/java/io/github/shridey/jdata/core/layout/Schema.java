@@ -22,6 +22,7 @@ public record Schema(List<Field> fields) {
     }
 
     public int getFieldIndex(String name) {
+        Objects.requireNonNull(name, "Column name cannot be null");
         for (int i = 0; i < fields.size(); i++) {
             if (fields.get(i).name().equals(name)) {
                 return i;

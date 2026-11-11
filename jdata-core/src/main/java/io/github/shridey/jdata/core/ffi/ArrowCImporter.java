@@ -2,10 +2,10 @@ package io.github.shridey.jdata.core.ffi;
 
 import io.github.shridey.jdata.core.DataBuffer;
 import io.github.shridey.jdata.core.DataType;
+import io.github.shridey.jdata.core.internal.ArrowCStructs;
 import io.github.shridey.jdata.core.layout.Field;
 import io.github.shridey.jdata.core.layout.Schema;
 import io.github.shridey.jdata.core.layout.Table;
-import io.github.shridey.jdata.core.internal.ArrowCStructs;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
@@ -15,6 +15,7 @@ import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandle;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public final class ArrowCImporter {
 
@@ -25,62 +26,77 @@ public final class ArrowCImporter {
     );
 
     public static Table importTable(MemorySegment arrayPtr, MemorySegment schemaPtr) {
-        MemorySegment formatPtr = schemaPtr.get(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_FORMAT);
-        String format = formatPtr.reinterpret(16).getString(0);
+        Objects.requireNonNull(arrayPtr, "arrayPtr cannot be null");
+        Objects.requireNonNull(schemaPtr, "schemaPtr cannot be null");
+
+        MemorySegment array = arrayPtr.reinterpret(ArrowCStructs.ARROW_ARRAY_LAYOUT.byteSize());
+        MemorySegment schema = schemaPtr.reinterpret(ArrowCStructs.ARROW_SCHEMA_LAYOUT.byteSize());
+
+        MemorySegment formatPtr = schema.get(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_FORMAT);
+        String format = formatPtr.reinterpret(Long.MAX_VALUE).getString(0);
 
         if (!"+s".equals(format)) {
             throw new IllegalArgumentException("Expected Struct (+s) format for Table, got: " + format);
         }
 
-        long nChildrenSchema = schemaPtr.get(ValueLayout.JAVA_LONG, ArrowCStructs.SCHEMA_OFFSET_N_CHILDREN);
-        long nChildrenArray = arrayPtr.get(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_N_CHILDREN);
+        long nChildrenSchema = schema.get(ValueLayout.JAVA_LONG, ArrowCStructs.SCHEMA_OFFSET_N_CHILDREN);
+        long nChildrenArray = array.get(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_N_CHILDREN);
 
         if (nChildrenSchema != nChildrenArray) {
             throw new IllegalStateException("Schema and Array children count mismatch");
         }
 
-        MemorySegment schemaChildrenPtr = schemaPtr.get(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_CHILDREN)
-                .reinterpret(nChildrenSchema * ValueLayout.ADDRESS.byteSize());
-        MemorySegment arrayChildrenPtr = arrayPtr.get(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_CHILDREN)
-                .reinterpret(nChildrenArray * ValueLayout.ADDRESS.byteSize());
+        List<Field> fields = new ArrayList<>((int) nChildrenSchema);
+        List<DataBuffer> columns = new ArrayList<>((int) nChildrenSchema);
 
-        List<Field> fields = new ArrayList<>();
-        List<DataBuffer> columns = new ArrayList<>();
+        if (nChildrenSchema > 0) {
+            MemorySegment schemaChildrenPtr = schema.get(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_CHILDREN)
+                    .reinterpret(nChildrenSchema * ValueLayout.ADDRESS.byteSize());
+            MemorySegment arrayChildrenPtr = array.get(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_CHILDREN)
+                    .reinterpret(nChildrenArray * ValueLayout.ADDRESS.byteSize());
 
-        for (int i = 0; i < nChildrenSchema; i++) {
-            // 1. REINTERPRET THE CHILD POINTERS TO GIVE THEM VALID BYTE SIZES
-            MemorySegment childSchemaPtr = schemaChildrenPtr.getAtIndex(ValueLayout.ADDRESS, i)
-                    .reinterpret(ArrowCStructs.ARROW_SCHEMA_LAYOUT.byteSize());
-            MemorySegment childArrayPtr = arrayChildrenPtr.getAtIndex(ValueLayout.ADDRESS, i)
-                    .reinterpret(ArrowCStructs.ARROW_ARRAY_LAYOUT.byteSize());
+            for (int i = 0; i < nChildrenSchema; i++) {
+                MemorySegment childSchemaPtr = schemaChildrenPtr.getAtIndex(ValueLayout.ADDRESS, i)
+                        .reinterpret(ArrowCStructs.ARROW_SCHEMA_LAYOUT.byteSize());
+                MemorySegment childArrayPtr = arrayChildrenPtr.getAtIndex(ValueLayout.ADDRESS, i)
+                        .reinterpret(ArrowCStructs.ARROW_ARRAY_LAYOUT.byteSize());
 
-            // 2. Import the child column buffers safely
-            ImportedDataBuffer buffer = importBuffer(childArrayPtr, childSchemaPtr);
-            columns.add(buffer);
+                long flags = childSchemaPtr.get(ValueLayout.JAVA_LONG, ArrowCStructs.SCHEMA_OFFSET_FLAGS);
+                boolean nullable = (flags & 2L) != 0;
 
-            // 3. Read the nullable flag safely now that bounds are established
-            long flags = childSchemaPtr.get(ValueLayout.JAVA_LONG, ArrowCStructs.SCHEMA_OFFSET_FLAGS);
-            boolean nullable = (flags & 2L) != 0;
-
-            fields.add(new Field(buffer.name(), buffer.type(), nullable));
+                ImportedDataBuffer buffer = importBuffer(childArrayPtr, childSchemaPtr);
+                columns.add(buffer);
+                fields.add(new Field(buffer.name(), buffer.type(), nullable));
+            }
         }
 
+        releaseSchemaIfPresent(schema);
         return new Table(new Schema(fields), columns);
     }
 
     public static ImportedDataBuffer importBuffer(MemorySegment arrayPtr, MemorySegment schemaPtr) {
-        MemorySegment formatPtr = schemaPtr.get(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_FORMAT);
-        String format = formatPtr.reinterpret(16).getString(0);
+        Objects.requireNonNull(arrayPtr, "arrayPtr cannot be null");
+        Objects.requireNonNull(schemaPtr, "schemaPtr cannot be null");
+
+        MemorySegment array = arrayPtr.reinterpret(ArrowCStructs.ARROW_ARRAY_LAYOUT.byteSize());
+        MemorySegment schema = schemaPtr.reinterpret(ArrowCStructs.ARROW_SCHEMA_LAYOUT.byteSize());
+
+        MemorySegment formatPtr = schema.get(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_FORMAT);
+        String format = formatPtr.reinterpret(Long.MAX_VALUE).getString(0);
         DataType type = DataType.fromFormat(format);
 
-        MemorySegment namePtr = schemaPtr.get(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_NAME);
-        String name = namePtr.equals(MemorySegment.NULL) ? "imported_col" : namePtr.reinterpret(256).getString(0);
+        MemorySegment namePtr = schema.get(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_NAME);
+        String name = namePtr.equals(MemorySegment.NULL)
+                ? "imported_col"
+                : namePtr.reinterpret(Long.MAX_VALUE).getString(0);
 
-        long length = arrayPtr.get(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_LENGTH);
-        long nBuffers = arrayPtr.get(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_N_BUFFERS);
-        long offset = arrayPtr.get(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_OFFSET);
+        long length = array.get(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_LENGTH);
+        long nullCount = array.get(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_NULL_COUNT);
+        long offset = array.get(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_OFFSET);
+        long nBuffers = array.get(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_N_BUFFERS);
+        long totalElements = Math.addExact(length, offset);
 
-        MemorySegment rawBuffersPtr = arrayPtr.get(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_BUFFERS);
+        MemorySegment rawBuffersPtr = array.get(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_BUFFERS);
         MemorySegment buffersArrayPtr = rawBuffersPtr.reinterpret(nBuffers * ValueLayout.ADDRESS.byteSize());
         MemorySegment[] resolvedBuffers = new MemorySegment[(int) nBuffers];
 
@@ -93,22 +109,54 @@ public final class ArrowCImporter {
             }
 
             if (i == 0) {
-                long bitmapBytes = (length + offset + 7) / 8;
+                long bitmapBytes = (totalElements + 7L) >>> 3;
                 resolvedBuffers[i] = rawPtr.reinterpret(bitmapBytes, Arena.global(), null);
             } else if (i == 1) {
-                if (type == DataType.FLOAT64 || type == DataType.INT64 || type == DataType.DATE64) {
-                    resolvedBuffers[i] = rawPtr.reinterpret((length + offset) * 8, Arena.global(), null);
-                } else if (type == DataType.INT32 || type == DataType.FLOAT32 || type == DataType.DATE32) {
-                    resolvedBuffers[i] = rawPtr.reinterpret((length + offset) * 4, Arena.global(), null);
+                long buffer1Bytes;
+                if (type == DataType.BOOLEAN) {
+                    buffer1Bytes = (totalElements + 7L) >>> 3;
+                } else if (type == DataType.UTF8 || type == DataType.BINARY) {
+                    buffer1Bytes = Math.multiplyExact(totalElements + 1L, Integer.BYTES);
+                } else if (type == DataType.LARGE_UTF8 || type == DataType.LARGE_BINARY) {
+                    buffer1Bytes = Math.multiplyExact(totalElements + 1L, Long.BYTES);
+                } else if (type.byteSize() > 0) {
+                    buffer1Bytes = Math.multiplyExact(totalElements, type.byteSize());
                 } else {
-                    resolvedBuffers[i] = rawPtr.reinterpret(Integer.MAX_VALUE, Arena.global(), null);
+                    buffer1Bytes = Integer.MAX_VALUE;
                 }
+                resolvedBuffers[i] = rawPtr.reinterpret(buffer1Bytes, Arena.global(), null);
+            } else if (i == 2) {
+                long buffer2Bytes;
+                if ((type == DataType.UTF8 || type == DataType.BINARY) && !resolvedBuffers[1].equals(MemorySegment.NULL)) {
+                    int endByte = resolvedBuffers[1].get(ValueLayout.JAVA_INT, totalElements * Integer.BYTES);
+                    buffer2Bytes = Math.max(endByte, 0);
+                } else if ((type == DataType.LARGE_UTF8 || type == DataType.LARGE_BINARY) && !resolvedBuffers[1].equals(MemorySegment.NULL)) {
+                    long endByte = resolvedBuffers[1].get(ValueLayout.JAVA_LONG, totalElements * Long.BYTES);
+                    buffer2Bytes = Math.max(endByte, 0L);
+                } else {
+                    buffer2Bytes = Integer.MAX_VALUE;
+                }
+                resolvedBuffers[i] = rawPtr.reinterpret(buffer2Bytes, Arena.global(), null);
             } else {
                 resolvedBuffers[i] = rawPtr.reinterpret(Integer.MAX_VALUE, Arena.global(), null);
             }
         }
 
-        MemorySegment releaseFuncPtr = arrayPtr.get(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_RELEASE);
-        return new ImportedDataBuffer(name, type, length, offset, resolvedBuffers, arrayPtr, releaseFuncPtr);
+        releaseSchemaIfPresent(schema);
+
+        MemorySegment releaseFuncPtr = array.get(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_RELEASE);
+        return new ImportedDataBuffer(name, type, length, offset, nullCount, resolvedBuffers, array, releaseFuncPtr);
+    }
+
+    private static void releaseSchemaIfPresent(MemorySegment schema) {
+        MemorySegment releasePtr = schema.get(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_RELEASE);
+        if (!releasePtr.equals(MemorySegment.NULL)) {
+            try {
+                NATIVE_RELEASE_CALL.invokeExact(releasePtr, schema);
+                schema.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_RELEASE, MemorySegment.NULL);
+            } catch (Throwable t) {
+                throw new RuntimeException("Failed to invoke native ArrowSchema release callback", t);
+            }
+        }
     }
 }

@@ -66,10 +66,7 @@ public enum DataType {
     /** Dictionary encoding. Relies on a nested schema and is handled dynamically. */
     DICTIONARY("DICTIONARY", -1);
 
-    // The universal C++ translator string
     private final String cDataFormat;
-
-    // The physical RAM required for one row of this type
     private final int byteSize;
 
     DataType(String cDataFormat, int byteSize) {
@@ -94,9 +91,14 @@ public enum DataType {
             throw new IllegalArgumentException("Format string cannot be null or empty.");
         }
         for (DataType type : values()) {
-            // Timestamp and FixedSize types can have appended metadata,
-            // so we check if the format starts with the base identifier.
-            if (format.startsWith(type.cDataFormat) && type != DICTIONARY) {
+            if (type == DICTIONARY) {
+                continue;
+            }
+            // Only parameterized formats (such as "tsm:<timezone>") use prefix matching.
+            boolean matches = type.cDataFormat.endsWith(":")
+                    ? format.startsWith(type.cDataFormat)
+                    : format.equals(type.cDataFormat);
+            if (matches) {
                 return type;
             }
         }

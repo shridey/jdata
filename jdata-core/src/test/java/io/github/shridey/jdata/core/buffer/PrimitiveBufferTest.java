@@ -1,102 +1,159 @@
 package io.github.shridey.jdata.core.buffer;
 
-import io.github.shridey.jdata.core.DataType;
 import org.junit.jupiter.api.Test;
+
 import java.lang.foreign.Arena;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 class PrimitiveBufferTest {
 
     @Test
-    void testFloat64AllocationAndValues() {
+    void testAllPrimitiveTypesAlignmentAndExtremeValues() {
         try (Arena arena = Arena.ofConfined()) {
-            Float64Buffer col = Float64Buffer.allocate(arena, "prices", 100);
+            // Int32
+            Int32Buffer i32 = Int32Buffer.allocate(arena, "i32", 4);
+            assertEquals(0L, i32.buffer(0).address() % 64);
+            assertEquals(0L, i32.buffer(1).address() % 64);
+            i32.copyFrom(new int[]{Integer.MIN_VALUE, -1, 0, Integer.MAX_VALUE});
+            assertArrayEquals(new int[]{Integer.MIN_VALUE, -1, 0, Integer.MAX_VALUE}, i32.toArray());
 
-            assertEquals("prices", col.name());
-            assertEquals(DataType.FLOAT64, col.type());
-            assertEquals(100, col.length());
+            // Int64
+            Int64Buffer i64 = Int64Buffer.allocate(arena, "i64", 4);
+            assertEquals(0L, i64.buffer(1).address() % 64);
+            i64.copyFrom(new long[]{Long.MIN_VALUE, -1L, 0L, Long.MAX_VALUE});
+            assertArrayEquals(new long[]{Long.MIN_VALUE, -1L, 0L, Long.MAX_VALUE}, i64.toArray());
 
-            // Test writing and reading exactly at hardware byte boundaries
-            col.set(0, 42.5);
-            col.set(99, -100.99);
+            // Float32
+            Float32Buffer f32 = Float32Buffer.allocate(arena, "f32", 4);
+            assertEquals(0L, f32.buffer(1).address() % 64);
+            float[] f32Vals = {Float.NEGATIVE_INFINITY, -0.0f, Float.NaN, Float.MAX_VALUE};
+            f32.copyFrom(f32Vals);
+            assertArrayEquals(f32Vals, f32.toArray());
 
-            assertEquals(42.5, col.get(0));
-            assertEquals(-100.99, col.get(99));
+            // Float64
+            Float64Buffer f64 = Float64Buffer.allocate(arena, "f64", 4);
+            assertEquals(0L, f64.buffer(1).address() % 64);
+            double[] f64Vals = {Double.NEGATIVE_INFINITY, -0.0, Double.NaN, Double.MAX_VALUE};
+            f64.copyFrom(f64Vals);
+            assertArrayEquals(f64Vals, f64.toArray());
         }
     }
 
     @Test
-    void testAbstractColumnNullStateLogic() {
+    void test64BitPopcntNullRecalculationOnLargeAndSlicedBuffers() {
         try (Arena arena = Arena.ofConfined()) {
-            Int32Buffer col = Int32Buffer.allocate(arena, "ids", 10);
+            // 1,500 rows exercises: 64-bit word loop (23 longs = 1472 bits) + 3 full bytes (24 bits) + 4 tail bits
+            int rows = 1500;
+            Int64Buffer col = Int64Buffer.allocate(arena, "metrics", rows);
 
-            // 1. Initial state should have 0 nulls (0xFF initialization)
-            assertEquals(0, col.nullCount());
-            assertFalse(col.isNull(5));
+            int expectedNulls = 0;
+            for (int i = 0; i < rows; i++) {
+                if (i % 11 == 0) {
+                    col.setNull(i);
+                    expectedNulls++;
+                } else {
+                    col.set(i, i * 10L);
+                }
+            }
+            assertEquals(expectedNulls, col.nullCount());
 
-            // 2. Setting a null should flip the bit and invalidate the cache
-            col.setNull(5);
-            assertTrue(col.isNull(5));
-            assertEquals(1, col.nullCount());
+            // Byte-aligned slice (offset = 64, length = 700) -> exercises 64-bit POPCNT fast path on a slice
+            Int64Buffer alignedSlice = col.slice(64, 700);
+            int expectedAlignedNulls = 0;
+            for (int i = 64; i < 764; i++) {
+                if (i % 11 == 0) expectedAlignedNulls++;
+            }
+            assertEquals(expectedAlignedNulls, alignedSlice.nullCount());
 
-            // 3. The "Once Null, Always Null" fix: Overwriting should heal the null state
-            col.set(5, 999);
-            assertFalse(col.isNull(5));
-            assertEquals(0, col.nullCount()); // Cache must recalculate to 0
+            // Unaligned bit slice (offset = 19, length = 500) -> exercises unaligned bit-scan path
+            Int64Buffer unalignedSlice = col.slice(19, 500);
+            int expectedUnalignedNulls = 0;
+            for (int i = 19; i < 519; i++) {
+                if (i % 11 == 0) expectedUnalignedNulls++;
+            }
+            assertEquals(expectedUnalignedNulls, unalignedSlice.nullCount());
         }
     }
 
     @Test
-    void testToBuilderForPrimitive() {
+    void testChainedSlicesAndBulkCopyIsolation() {
         try (Arena arena = Arena.ofConfined()) {
-            // 1. Create a sealed buffer with data and nulls
-            Int32Buffer original = Int32Buffer.allocate(arena, "col", 3);
-            original.set(0, 10);
-            original.setNull(1);
-            original.set(2, 30);
+            Int32Buffer root = Int32Buffer.allocate(arena, "root", 20);
+            int[] initial = new int[20];
+            for (int i = 0; i < 20; i++) initial[i] = i;
+            root.copyFrom(initial);
 
-            // 2. Unseal it into a builder
-            Int32BufferBuilder builder = original.toBuilder(arena);
+            // Chained slice: root[5..15) -> subSlice[2..7) == root[7..12)
+            Int32Buffer slice1 = root.slice(5, 10);
+            Int32Buffer slice2 = slice1.slice(2, 5);
 
-            // 3. Mutate it to prove it's a completely decoupled, mutable copy
-            builder.append(40);
-            Int32Buffer rebuilt = builder.build();
+            assertEquals(7L, slice2.offset());
+            assertEquals(5L, slice2.length());
+            assertArrayEquals(new int[]{7, 8, 9, 10, 11}, slice2.toArray());
 
-            // 4. Verify all bounds and states
-            assertEquals(4, rebuilt.length());
-            assertEquals(10, rebuilt.get(0));
-            assertTrue(rebuilt.isNull(1));
-            assertEquals(30, rebuilt.get(2));
-            assertEquals(40, rebuilt.get(3));
+            // Bulk copyFrom into slice2 must only overwrite root[7..12)
+            slice2.copyFrom(new int[]{700, 800, 900, 1000, 1100});
+            assertEquals(6, root.get(6));
+            assertEquals(700, root.get(7));
+            assertEquals(1100, root.get(11));
+            assertEquals(12, root.get(12));
         }
     }
 
     @Test
-    void testZeroCopySliceLogic() {
+    void testBuildersScaleAndPreserveNullsAcrossBlocks() {
         try (Arena arena = Arena.ofConfined()) {
-            Int32Buffer original = Int32Buffer.allocate(arena, "numbers", 5);
-            original.copyFrom(new int[]{10, 20, 30, 40, 50});
-            original.setNull(1); // 20 becomes null
+            Float64BufferBuilder builder = new Float64BufferBuilder(arena, "revenue", 2);
 
-            // Create a zero-copy view of rows 2, 3, and 4
-            Int32Buffer slice = original.slice(2, 3);
+            for (int i = 0; i < 1000; i++) {
+                if (i % 100 == 0) {
+                    builder.appendNull();
+                } else {
+                    builder.append(i * 1.5);
+                }
+            }
+            builder.appendAll(new double[]{999.1, 999.2, 999.3});
 
-            // 1. Verify Logical Metadata
-            assertEquals(3, slice.length());
-            assertEquals(2, slice.offset());
-            assertEquals("numbers", slice.name());
+            Float64Buffer built = builder.build();
+            assertEquals(1003L, built.length());
+            assertEquals(10L, built.nullCount());
+            assertTrue(built.isNull(0));
+            assertTrue(built.isNull(900));
+            assertEquals(1.5, built.get(1));
+            assertEquals(999.3, built.get(1002));
 
-            // 2. Verify Shifted Reads (Hardware physicalIndex math)
-            assertEquals(30, slice.get(0));
-            assertEquals(40, slice.get(1));
-            assertEquals(50, slice.get(2));
+            // Test toBuilder on a sliced view
+            Float64Buffer sliced = built.slice(95, 15); // Contains index 100 (null)
+            Float64Buffer rebuilt = sliced.toBuilder(arena).build();
+            assertEquals(15L, rebuilt.length());
+            assertEquals(0L, rebuilt.offset());
+            assertEquals(1L, rebuilt.nullCount());
+            assertTrue(rebuilt.isNull(5)); // 95 + 5 = 100
+            assertEquals(96 * 1.5, rebuilt.get(1));
+        }
+    }
 
-            // 3. Verify the slow-path toArray extraction
-            assertArrayEquals(new int[]{30, 40, 50}, slice.toArray());
+    @Test
+    void testPrimitiveBoundsAndOverflowProtection() {
+        try (Arena arena = Arena.ofConfined()) {
+            assertThrows(IllegalArgumentException.class, () -> Int32Buffer.allocate(arena, "neg", -1));
+            assertThrows(ArithmeticException.class, () -> Int64Buffer.allocate(arena, "overflow", Long.MAX_VALUE));
 
-            // 4. Verify that mutating the original affects the slice (proving they share memory)
-            original.set(2, 999);
-            assertEquals(999, slice.get(0));
+            Int32Buffer buf = Int32Buffer.allocate(arena, "buf", 10);
+            Int32Buffer slice = buf.slice(4, 4);
+
+            assertThrows(IndexOutOfBoundsException.class, () -> slice.get(-1));
+            assertThrows(IndexOutOfBoundsException.class, () -> slice.get(4));
+            assertThrows(IndexOutOfBoundsException.class, () -> slice.copyBlock(buf, 0, -1, 2));
+            assertThrows(IndexOutOfBoundsException.class, () -> slice.copyBlock(buf, 9, 0, 2));
+
+            Int32BufferBuilder builder = new Int32BufferBuilder(arena, "b", 4);
+            assertThrows(IndexOutOfBoundsException.class, () -> builder.appendBlock(buf, -1, 3));
+            assertThrows(IndexOutOfBoundsException.class, () -> builder.appendBlock(buf, 8, 5));
+            assertThrows(IllegalArgumentException.class, () -> builder.appendImportedBlock(
+                    Float32Buffer.allocate(arena, "f", 2), 0, 2
+            ));
         }
     }
 }

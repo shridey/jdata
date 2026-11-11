@@ -5,6 +5,7 @@ import io.github.shridey.jdata.core.internal.ArrowMemoryAllocator;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.Objects;
 
 /**
  * A sealed, read-only Arrow column for 32-bit signed integers.
@@ -12,10 +13,8 @@ import java.lang.foreign.ValueLayout;
  */
 public final class Int32Buffer extends AbstractDataBuffer {
 
-    // The physical 4-byte-per-element data block (Buffer 1 in Arrow spec)
     private final MemorySegment dataBuffer;
 
-    // Package-private constructor: Only Int32BufferBuilder or allocate() can create this.
     Int32Buffer(String name, Arena arena, long length, long offset, MemorySegment validityBitmap, MemorySegment dataBuffer) {
         super(name, arena, length, offset, validityBitmap);
         this.dataBuffer = dataBuffer;
@@ -26,27 +25,28 @@ public final class Int32Buffer extends AbstractDataBuffer {
      * Use this if you know EXACTLY how many rows you need upfront.
      */
     public static Int32Buffer allocate(Arena arena, String name, long length) {
-        long bitmapBytes = (length + 7) / 8;
-        long dataBytes = length * ValueLayout.JAVA_INT.byteSize();
+        if (length < 0) {
+            throw new IllegalArgumentException("Buffer length cannot be negative: " + length);
+        }
+        long bitmapBytes = (length + 7L) >>> 3;
+        long dataBytes = Math.multiplyExact(length, ValueLayout.JAVA_INT.byteSize());
 
         MemorySegment validityBitmap = ArrowMemoryAllocator.allocateAligned(arena, bitmapBytes);
         MemorySegment dataBuffer = ArrowMemoryAllocator.allocateAligned(arena, dataBytes);
 
-        // Pass 0 as the absolute physical offset for new allocations
         Int32Buffer buffer = new Int32Buffer(name, arena, length, 0, validityBitmap, dataBuffer);
-        buffer.setAllValid(); // Fill bitmap with 1s (all valid)
+        buffer.setAllValid();
 
         return buffer;
     }
 
     public void set(long index, int value) {
-        checkBounds(index); // Security check to prevent writing into memory padding
+        checkBounds(index);
 
-        // Convert the logical row index to a physical memory byte offset.
         long physicalIndex = index + this.offset;
         long byteOffset = physicalIndex * ValueLayout.JAVA_INT.byteSize();
         dataBuffer.set(ValueLayout.JAVA_INT, byteOffset, value);
-        markValid(index); // Ensure the parent class updates the null tracker
+        markValid(index);
     }
 
     public int get(long index) {
@@ -57,15 +57,13 @@ public final class Int32Buffer extends AbstractDataBuffer {
     }
 
     public void copyBlock(Int32Buffer source, long srcIndex, long destIndex, long length) {
-        if (length <= 0) return;
+        Objects.requireNonNull(source, "Source buffer cannot be null");
+        Objects.checkFromIndexSize(srcIndex, length, source.length);
+        Objects.checkFromIndexSize(destIndex, length, this.length);
 
-        // Ensure we don't accidentally overwrite memory outside our logical boundaries
-        if (destIndex + length > this.length) throw new IndexOutOfBoundsException("Destination bounds exceeded");
-        if (srcIndex + length > source.length) throw new IndexOutOfBoundsException("Source bounds exceeded");
+        if (length == 0) return;
 
         long byteSize = ValueLayout.JAVA_INT.byteSize();
-
-        // Account for offsets in both source and destination
         long srcPhysical = srcIndex + source.offset;
         long destPhysical = destIndex + this.offset;
 
@@ -73,15 +71,17 @@ public final class Int32Buffer extends AbstractDataBuffer {
         long destByteOffset = destPhysical * byteSize;
         long copyBytes = length * byteSize;
 
-        // 1. Instantly copy the raw integer bytes using OS-level intrinsic speed
         MemorySegment.copy(source.dataBuffer, srcByteOffset, this.dataBuffer, destByteOffset, copyBytes);
 
-        // 2. Synchronize the validity bitmap bit-by-bit
-        for (long i = 0; i < length; i++) {
-            if (source.isNull(srcIndex + i)) {
-                this.setNull(destIndex + i);
-            } else {
-                this.markValid(destIndex + i);
+        if (source.nullCount() == 0 && destIndex == 0 && length == this.length) {
+            setAllValid();
+        } else {
+            for (long i = 0; i < length; i++) {
+                if (source.isNull(srcIndex + i)) {
+                    this.setNull(destIndex + i);
+                } else {
+                    this.markValid(destIndex + i);
+                }
             }
         }
     }
@@ -89,45 +89,30 @@ public final class Int32Buffer extends AbstractDataBuffer {
     /**
      * Ingestion: Dumps an entire Java array into this buffer instantly.
      */
-    public void copyFrom(int[] source) throws IllegalArgumentException {
+    public void copyFrom(int[] source) {
+        Objects.requireNonNull(source, "Source array cannot be null");
         if (source.length != this.length) {
             throw new IllegalArgumentException("Array length must exactly match buffer length.");
         }
 
-        // If this is a sliced buffer, we cannot do a bulk byte copy because we would
-        // overwrite memory outside our logical boundaries.
-        if (this.offset != 0) {
-            for (int i = 0; i < source.length; i++) {
-                this.set(i, source[i]);
-            }
-            return;
-        }
-
+        long byteSize = ValueLayout.JAVA_INT.byteSize();
         MemorySegment heapSegment = MemorySegment.ofArray(source);
-        MemorySegment.copy(heapSegment, 0, this.dataBuffer, 0, (long) source.length * ValueLayout.JAVA_INT.byteSize());
+        MemorySegment.copy(heapSegment, 0, this.dataBuffer, this.offset * byteSize, this.length * byteSize);
         setAllValid();
     }
 
     /**
      * Exfiltration: Dumps this off-heap buffer back into a standard Java array.
      */
-    public int[] toArray() throws IllegalStateException {
+    public int[] toArray() {
         if (this.length > Integer.MAX_VALUE) {
             throw new IllegalStateException("Buffer length is too large to fit in a Java array.");
         }
 
         int[] target = new int[(int) this.length];
-
-        if (this.offset == 0) {
-            // Fast path for non-sliced buffers
-            MemorySegment heapSegment = MemorySegment.ofArray(target);
-            MemorySegment.copy(this.dataBuffer, 0, heapSegment, 0, this.length * ValueLayout.JAVA_INT.byteSize());
-        } else {
-            // Slow path for sliced buffers to prevent grabbing out-of-bounds bytes
-            for (int i = 0; i < this.length; i++) {
-                target[i] = this.get(i);
-            }
-        }
+        long byteSize = ValueLayout.JAVA_INT.byteSize();
+        MemorySegment heapSegment = MemorySegment.ofArray(target);
+        MemorySegment.copy(this.dataBuffer, this.offset * byteSize, heapSegment, 0, this.length * byteSize);
 
         return target;
     }
@@ -140,13 +125,9 @@ public final class Int32Buffer extends AbstractDataBuffer {
 
     @Override
     public Int32Buffer slice(long sliceOffset, long sliceLength) {
-        if (sliceOffset < 0 || sliceLength < 0 || sliceOffset + sliceLength > this.length) {
-            throw new IndexOutOfBoundsException("Invalid slice parameters");
-        }
-        // Calculate the new absolute hardware offset
+        Objects.checkFromIndexSize(sliceOffset, sliceLength, this.length);
         long absoluteOffset = this.offset + sliceOffset;
 
-        // Return a view wrapping the EXACT SAME MemorySegments without allocating new bytes
         return new Int32Buffer(this.name, this.arena, sliceLength, absoluteOffset,
                 this.validityBitmap, this.dataBuffer);
     }
@@ -157,8 +138,8 @@ public final class Int32Buffer extends AbstractDataBuffer {
     @Override
     public MemorySegment buffer(int index) throws IndexOutOfBoundsException {
         return switch (index) {
-            case 0 -> super.buffer(0); // Safely returns the validity bitmap
-            case 1 -> dataBuffer;      // Returns the physical integers
+            case 0 -> super.buffer(0);
+            case 1 -> dataBuffer;
             default -> throw new IndexOutOfBoundsException("Int32Buffer has exactly 2 buffers.");
         };
     }

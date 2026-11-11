@@ -19,23 +19,28 @@ public final class Table implements AutoCloseable {
         this.schema = Objects.requireNonNull(schema, "Schema cannot be null");
         this.columns = List.copyOf(Objects.requireNonNull(columns, "Columns cannot be null"));
 
-        if (schema.columnCount() != columns.size()) {
+        if (schema.columnCount() != this.columns.size()) {
             throw new IllegalArgumentException(String.format(
                     "Schema size (%d) does not match column count (%d)",
-                    schema.columnCount(), columns.size()
+                    schema.columnCount(), this.columns.size()
             ));
         }
 
         if (this.columns.isEmpty()) {
             this.rowCount = 0;
         } else {
-            // Establish the required row count from the first column
             this.rowCount = this.columns.getFirst().length();
 
-            // STRICT ALIGNMENT: An analytical table is invalid if columns have different lengths
             for (int i = 0; i < this.columns.size(); i++) {
                 DataBuffer col = this.columns.get(i);
                 Field field = schema.getField(i);
+
+                if (!col.name().equals(field.name())) {
+                    throw new IllegalArgumentException(String.format(
+                            "Column name mismatch at index %d. Schema expects '%s', Buffer is '%s'.",
+                            i, field.name(), col.name()
+                    ));
+                }
 
                 if (col.length() != this.rowCount) {
                     throw new IllegalArgumentException(String.format(
@@ -48,6 +53,13 @@ public final class Table implements AutoCloseable {
                     throw new IllegalArgumentException(String.format(
                             "Type mismatch at index %d ('%s'). Schema expects %s, Buffer is %s.",
                             i, field.name(), field.type(), col.type()
+                    ));
+                }
+
+                if (!field.nullable() && col.nullCount() > 0) {
+                    throw new IllegalArgumentException(String.format(
+                            "Nullability violation at index %d ('%s'). Field is non-nullable but buffer contains %d nulls.",
+                            i, field.name(), col.nullCount()
                     ));
                 }
             }
@@ -75,11 +87,8 @@ public final class Table implements AutoCloseable {
      * Partitions the entire table instantly for multithreaded workloads.
      */
     public Table slice(long offset, long length) {
-        if (offset < 0 || length < 0 || offset + length > this.rowCount) {
-            throw new IndexOutOfBoundsException("Invalid slice parameters for Table");
-        }
+        Objects.checkFromIndexSize(offset, length, this.rowCount);
 
-        // Delegate the zero-copy slicing down to every individual off-heap buffer
         List<DataBuffer> slicedColumns = columns.stream()
                 .map(col -> col.slice(offset, length))
                 .toList();
@@ -91,11 +100,25 @@ public final class Table implements AutoCloseable {
      * Safely releases all underlying FFM off-heap memory.
      */
     @Override
-    public void close() throws Exception {
+    public void close() {
+        RuntimeException firstException = null;
         for (DataBuffer col : columns) {
             if (col instanceof AutoCloseable closeable) {
-                closeable.close();
+                try {
+                    closeable.close();
+                } catch (Exception e) {
+                    if (firstException == null) {
+                        firstException = (e instanceof RuntimeException re)
+                                ? re
+                                : new RuntimeException("Failed to close column: " + col.name(), e);
+                    } else {
+                        firstException.addSuppressed(e);
+                    }
+                }
             }
+        }
+        if (firstException != null) {
+            throw firstException;
         }
     }
 }

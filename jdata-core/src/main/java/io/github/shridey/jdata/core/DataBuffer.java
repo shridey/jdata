@@ -1,5 +1,6 @@
 package io.github.shridey.jdata.core;
 
+import io.github.shridey.jdata.core.buffer.AbstractBufferBuilder;
 import io.github.shridey.jdata.core.buffer.AbstractDataBuffer;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -84,7 +85,7 @@ public sealed interface DataBuffer permits AbstractDataBuffer {
      * @param arena The memory arena to bind the new builder to.
      * @return A new builder pre-populated with this buffer's data.
      */
-    Object toBuilder(Arena arena);
+    AbstractBufferBuilder toBuilder(Arena arena);
 
     /**
      * Creates a zero-copy view of this buffer sharing the exact same physical memory.

@@ -47,9 +47,7 @@ public final class ArrowCStructs {
             ValueLayout.ADDRESS.withName("private_data")
     ).withName("ArrowSchema");
 
-    // We pre-calculate exactly how many bytes into the struct each field starts.
-    // For example, 'null_count' starts 8 bytes into the struct (right after 'length').
-    // Hardcoding these byte offsets makes writing to the struct lightning fast.
+    // Pre-computed byte offsets for ArrowArray fields
     public static final long ARRAY_OFFSET_LENGTH = ARROW_ARRAY_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("length"));
     public static final long ARRAY_OFFSET_NULL_COUNT = ARROW_ARRAY_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("null_count"));
     public static final long ARRAY_OFFSET_OFFSET = ARROW_ARRAY_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("offset"));
@@ -59,13 +57,16 @@ public final class ArrowCStructs {
     public static final long ARRAY_OFFSET_CHILDREN = ARROW_ARRAY_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("children"));
     public static final long ARRAY_OFFSET_DICTIONARY = ARROW_ARRAY_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("dictionary"));
     public static final long ARRAY_OFFSET_RELEASE = ARROW_ARRAY_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("release"));
+    public static final long ARRAY_OFFSET_PRIVATE_DATA = ARROW_ARRAY_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("private_data"));
 
     // Pre-computed byte offsets for ArrowSchema fields
     public static final long SCHEMA_OFFSET_FORMAT = ARROW_SCHEMA_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("format"));
     public static final long SCHEMA_OFFSET_NAME = ARROW_SCHEMA_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("name"));
+    public static final long SCHEMA_OFFSET_METADATA = ARROW_SCHEMA_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("metadata"));
     public static final long SCHEMA_OFFSET_FLAGS = ARROW_SCHEMA_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("flags"));
     public static final long SCHEMA_OFFSET_N_CHILDREN = ARROW_SCHEMA_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("n_children"));
     public static final long SCHEMA_OFFSET_CHILDREN = ARROW_SCHEMA_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("children"));
     public static final long SCHEMA_OFFSET_DICTIONARY = ARROW_SCHEMA_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("dictionary"));
     public static final long SCHEMA_OFFSET_RELEASE = ARROW_SCHEMA_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("release"));
+    public static final long SCHEMA_OFFSET_PRIVATE_DATA = ARROW_SCHEMA_LAYOUT.byteOffset(MemoryLayout.PathElement.groupElement("private_data"));
 }

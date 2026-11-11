@@ -2,6 +2,7 @@ package io.github.shridey.jdata.core.internal;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.util.Objects;
 
 /**
  * A utility class responsible for allocating off-heap memory that strictly complies
@@ -12,7 +13,6 @@ import java.lang.foreign.MemorySegment;
  */
 public final class ArrowMemoryAllocator {
 
-    // Prevent instantiation of this utility class.
     private ArrowMemoryAllocator() {}
 
     /**
@@ -26,16 +26,12 @@ public final class ArrowMemoryAllocator {
      * @throws IllegalArgumentException if byteSize is negative.
      */
     public static MemorySegment allocateAligned(Arena arena, long byteSize) {
+        Objects.requireNonNull(arena, "Arena cannot be null.");
         if (byteSize < 0) {
-            throw new IllegalArgumentException("Allocation byteSize cannot be negative.");
+            throw new IllegalArgumentException("Allocation byteSize cannot be negative: " + byteSize);
         }
 
-        // Allocate the segment with strict 64-byte alignment.
-        MemorySegment segment = arena.allocate(byteSize, 64);
-
-        // Arrow specification requires newly allocated memory to be zeroed out.
-        segment.fill((byte) 0);
-
-        return segment;
+        // Standard JDK Arenas guarantee newly allocated memory is zero-initialized.
+        return arena.allocate(byteSize, 64);
     }
 }

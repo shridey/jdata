@@ -1,101 +1,138 @@
 package io.github.shridey.jdata.core.buffer;
 
 import org.junit.jupiter.api.Test;
+
 import java.lang.foreign.Arena;
+import java.nio.charset.StandardCharsets;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 class UTF8BufferTest {
 
     @Test
-    void testVariableLengthStringOffsets() {
+    void testMultilingualUnicodeAndEmojiEncoding() {
         try (Arena arena = Arena.ofConfined()) {
-            String[] input = {"Apple", null, "", "Banana"};
-            UTF8Buffer col = UTF8Buffer.allocate(arena, "fruits", input);
+            String[] samples = {
+                    "ASCII_123",                  // 1-byte UTF-8
+                    "",                           // Empty string
+                    null,                         // Null entry
+                    "Café & Привет & αβγ",        // 2-byte UTF-8
+                    "नमस्ते दुनिया | 日本語 | €",    // 3-byte UTF-8
+                    "🚀🔥🎉Jw𝄞"                    // 4-byte surrogate pairs (Astral plane)
+            };
 
-            assertEquals(4, col.length());
-            assertEquals(1, col.nullCount());
+            UTF8Buffer allocated = UTF8Buffer.allocate(arena, "i18n", samples);
+            assertEquals(samples.length, allocated.length());
+            assertEquals(1L, allocated.nullCount());
+            assertArrayEquals(samples, allocated.toArray());
 
-            // 1. Standard string extraction
-            assertEquals("Apple", col.getString(0));
+            // Verify identical results via UTF8BufferBuilder.append and appendAll
+            UTF8BufferBuilder builder = new UTF8BufferBuilder(arena, "i18n_built", 2, 8);
+            for (String s : samples) {
+                builder.append(s);
+            }
+            builder.appendAll(samples);
 
-            // 2. Null extraction (should bypass offset math)
-            assertTrue(col.isNull(1));
-            assertNull(col.getString(1));
-
-            // 3. Empty string extraction (start offset == end offset)
-            assertFalse(col.isNull(2));
-            assertEquals("", col.getString(2));
-
-            // 4. Final string extraction
-            assertEquals("Banana", col.getString(3));
+            UTF8Buffer built = builder.build();
+            assertEquals(samples.length * 2L, built.length());
+            assertEquals(2L, built.nullCount());
+            for (int i = 0; i < samples.length; i++) {
+                assertEquals(samples[i], built.getString(i));
+                assertEquals(samples[i], built.getString(samples.length + i));
+            }
         }
     }
 
     @Test
-    void testBuilderSafelyCopiesBlocks() {
+    void testMalformedUnpairedSurrogatesDoNotCrashOrCorruptOffsets() {
         try (Arena arena = Arena.ofConfined()) {
-            // 1. Initialize a sealed source buffer with a long string
-            UTF8Buffer source = UTF8Buffer.allocate(arena, "src", new String[]{"XYZ"});
+            String[] malformed = {
+                    "trailHigh\uD83D",             // Unpaired high surrogate at end of string
+                    "midHigh\uD83DASCII",          // Unpaired high surrogate followed by ASCII
+                    "\uD800\uD83D\uDE80",          // Unpaired high surrogate followed by valid 🚀 pair
+                    "loneLow\uDE00end",            // Unpaired low surrogate
+                    "clean_after_malformed"        // Must remain completely uncorrupted
+            };
 
-            // 2. Use a Builder to construct the new data layout
-            UTF8BufferBuilder builder = new UTF8BufferBuilder(arena, "dest", 10, 64);
+            UTF8Buffer allocated = UTF8Buffer.allocate(arena, "malformed", malformed);
+            UTF8Buffer built = new UTF8BufferBuilder(arena, "malformed_builder", 2, 16)
+                    .appendAll(malformed)
+                    .build();
 
-            // 3. Chain the operations together to utilize the return values and silence IDE warnings
-            UTF8Buffer finalBuffer = builder.append("A")             // Index 0
-                    .appendBlock(source, 0, 1) // Index 1
-                    .append("C")             // Index 2
-                    .build();                // Seal it
-
-            // 4. Assertions
-            assertEquals(3, finalBuffer.length());
-            assertEquals("A", finalBuffer.getString(0));
-            assertEquals("XYZ", finalBuffer.getString(1));
-            assertEquals("C", finalBuffer.getString(2), "Subsequent strings remain perfectly intact.");
+            for (int i = 0; i < malformed.length; i++) {
+                String expected = new String(malformed[i].getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+                assertEquals(expected, allocated.getString(i), "Mismatch in allocate() at index " + i);
+                assertEquals(expected, built.getString(i), "Mismatch in builder at index " + i);
+            }
         }
     }
 
     @Test
-    void testToBuilderForUTF8() {
+    void testSlicingAndBlockAppendsWithOffsetRebasing() {
         try (Arena arena = Arena.ofConfined()) {
-            UTF8Buffer original = UTF8Buffer.allocate(arena, "strings", new String[]{"A", null, "B"});
+            String[] words = {"Zero", "One", null, "Three_🚀", "Four", "Five"};
+            UTF8Buffer base = UTF8Buffer.allocate(arena, "words", words);
 
-            UTF8BufferBuilder builder = original.toBuilder(arena);
-            builder.append("C");
-            UTF8Buffer rebuilt = builder.build();
+            // Chained slice: base[1..6) -> sub[1..4) == ["null", "Three_🚀", "Four"]
+            UTF8Buffer slice1 = base.slice(1, 5);
+            UTF8Buffer slice2 = slice1.slice(1, 3);
 
-            assertEquals(4, rebuilt.length());
-            assertEquals("A", rebuilt.getString(0));
-            assertTrue(rebuilt.isNull(1));
-            assertEquals("B", rebuilt.getString(2));
-            assertEquals("C", rebuilt.getString(3));
+            assertEquals(3L, slice2.length());
+            assertEquals(2L, slice2.offset());
+            assertEquals(1L, slice2.nullCount());
+            assertArrayEquals(new String[]{null, "Three_🚀", "Four"}, slice2.toArray());
+
+            // Append sliced block into a builder that already has data (exercises offsetDelta != 0)
+            UTF8BufferBuilder builder = new UTF8BufferBuilder(arena, "combined", 2, 8);
+            builder.append("Header")
+                    .appendBlock(slice2, 0, slice2.length())
+                    .append("Footer");
+
+            UTF8Buffer result = builder.build();
+            assertEquals(5L, result.length());
+            assertEquals(1L, result.nullCount());
+            assertArrayEquals(new String[]{"Header", null, "Three_🚀", "Four", "Footer"}, result.toArray());
+
+            // Fast-path block copy: unsliced non-null buffer into empty builder (offsetDelta == 0 && !hasNulls)
+            UTF8Buffer nonNull = UTF8Buffer.allocate(arena, "clean", new String[]{"Alpha", "Beta", "Gamma"});
+            UTF8Buffer fastCopy = nonNull.toBuilder(arena).build();
+            assertEquals(0L, fastCopy.nullCount());
+            assertArrayEquals(new String[]{"Alpha", "Beta", "Gamma"}, fastCopy.toArray());
         }
     }
 
     @Test
-    void testZeroCopySliceUTF8() {
+    void testEmptyAndAllNullStringBuffers() {
         try (Arena arena = Arena.ofConfined()) {
-            String[] words = {"Apple", "Banana", null, "Date", "Elderberry"};
-            UTF8Buffer original = UTF8Buffer.allocate(arena, "words", words);
+            UTF8Buffer empty = UTF8Buffer.allocate(arena, "empty", new String[0]);
+            assertEquals(0L, empty.length());
+            assertEquals(0L, empty.nullCount());
+            assertEquals(0, empty.toArray().length);
 
-            // Slice out: ["Banana", null, "Date"]
-            UTF8Buffer slice = original.slice(1, 3);
+            UTF8Buffer allNulls = UTF8Buffer.allocate(arena, "nulls", new String[]{null, null, null});
+            assertEquals(3L, allNulls.length());
+            assertEquals(3L, allNulls.nullCount());
+            assertNull(allNulls.getString(0));
+            assertNull(allNulls.getString(2));
+        }
+    }
 
-            assertEquals(3, slice.length());
-            assertEquals(1, slice.offset());
+    @Test
+    void testUTF8BoundsAndCapacityValidation() {
+        try (Arena arena = Arena.ofConfined()) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> new UTF8BufferBuilder(arena, "bad_cap", 8, -1));
+            assertThrows(IllegalArgumentException.class,
+                    () -> new UTF8BufferBuilder(arena, "overflow_cap", 8, (long) Integer.MAX_VALUE + 1L));
 
-            // Verify string extraction with offsets
-            assertEquals("Banana", slice.getString(0));
-            assertTrue(slice.isNull(1));
-            assertNull(slice.getString(1));
-            assertEquals("Date", slice.getString(2));
+            UTF8Buffer buf = UTF8Buffer.allocate(arena, "test", new String[]{"A", "B"});
+            assertThrows(IndexOutOfBoundsException.class, () -> buf.getString(-1));
+            assertThrows(IndexOutOfBoundsException.class, () -> buf.getString(2));
+            assertThrows(IndexOutOfBoundsException.class, () -> buf.slice(1, 2));
 
-            assertArrayEquals(new String[]{"Banana", null, "Date"}, slice.toArray());
-
-            // Prove the pipeline: Sliced Buffer -> Builder -> Clean Buffer
-            UTF8Buffer rebuilt = slice.toBuilder(arena).build();
-            assertEquals(3, rebuilt.length());
-            assertEquals(0, rebuilt.offset()); // Rebuilt buffers should reset offset to 0
-            assertEquals("Date", rebuilt.getString(2));
+            UTF8BufferBuilder builder = new UTF8BufferBuilder(arena, "b", 4, 64);
+            assertThrows(IndexOutOfBoundsException.class, () -> builder.appendBlock(buf, -1, 1));
+            assertThrows(IndexOutOfBoundsException.class, () -> builder.appendBlock(buf, 1, 2));
         }
     }
 }

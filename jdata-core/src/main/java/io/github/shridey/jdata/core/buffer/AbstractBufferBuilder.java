@@ -1,9 +1,11 @@
 package io.github.shridey.jdata.core.buffer;
 
+import io.github.shridey.jdata.core.DataBuffer;
 import io.github.shridey.jdata.core.internal.ArrowMemoryAllocator;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.Objects;
 
 /**
  * The base class for all Buffer Builders.
@@ -15,33 +17,26 @@ public abstract sealed class AbstractBufferBuilder permits
         BooleanBufferBuilder, Int32BufferBuilder, Int64BufferBuilder,
         Float32BufferBuilder, Float64BufferBuilder, UTF8BufferBuilder {
 
-    // The arena controls when memory is freed. The name is the column's logical name (e.g., "age").
     protected final Arena arena;
     protected final String name;
 
-    // 'logicalCapacity' is how many rows we can hold right now before needing to resize.
-    // 'logicalLength' is how many rows we have actually written so far.
     protected long logicalCapacity;
     protected long logicalLength = 0;
 
-    // The off-heap memory segment holding the 1-bit-per-row null trackers.
     protected MemorySegment validityBitmap;
 
     protected AbstractBufferBuilder(Arena arena, String name, long initialLogicalCapacity) {
-        this.arena = arena;
-        this.name = name;
+        this.arena = Objects.requireNonNull(arena, "Arena cannot be null.");
+        this.name = Objects.requireNonNull(name, "Column name cannot be null.");
+        if (initialLogicalCapacity < 0) {
+            throw new IllegalArgumentException("initialLogicalCapacity cannot be negative: " + initialLogicalCapacity);
+        }
+
         // Start with a minimum of 8 rows to avoid fractional byte math
-        this.logicalCapacity = Math.max(initialLogicalCapacity, 8);
+        this.logicalCapacity = Math.max(initialLogicalCapacity, 8L);
 
-        // Arrow requires 1 bit per row for the validity bitmap.
-        // We divide by 8 to convert bits to bytes, adding 7 to round up for remainders.
-        long bitmapBytes = (logicalCapacity + 7) / 8;
-
-        // Allocate off-heap memory aligned to 64 bytes for hardware speed
+        long bitmapBytes = (this.logicalCapacity + 7L) >>> 3;
         this.validityBitmap = ArrowMemoryAllocator.allocateAligned(arena, bitmapBytes);
-
-        // Arrow spec says 1 means "valid" (not null) and 0 means "null".
-        // We fill with 0xFF (all 1s) so every row starts as valid by default.
         this.validityBitmap.fill((byte) 0xFF);
     }
 
@@ -50,27 +45,26 @@ public abstract sealed class AbstractBufferBuilder permits
      * and copies the old memory into the new, larger memory block.
      */
     protected void ensureLogicalCapacity(long additionalRows) {
-        long targetLogical = logicalLength + additionalRows;
+        if (additionalRows < 0) {
+            throw new IllegalArgumentException("additionalRows cannot be negative: " + additionalRows);
+        }
+        long targetLogical = Math.addExact(logicalLength, additionalRows);
 
-        // If the target rows exceed our current limit, we must resize.
         if (targetLogical > logicalCapacity) {
-            // Double the capacity (like a standard Java ArrayList) for O(1) amortized appends
-            long newLogicalCapacity = Math.max(logicalCapacity * 2, targetLogical);
-            long newBitmapBytes = (newLogicalCapacity + 7) / 8;
+            long doubled = (logicalCapacity > Long.MAX_VALUE / 2) ? Long.MAX_VALUE : logicalCapacity * 2;
+            long newLogicalCapacity = Math.max(doubled, targetLogical);
 
-            // Allocate the new, larger memory block
+            long oldBitmapBytes = (logicalCapacity + 7L) >>> 3;
+            long newBitmapBytes = (newLogicalCapacity + 7L) >>> 3;
+
             MemorySegment newValidity = ArrowMemoryAllocator.allocateAligned(arena, newBitmapBytes);
-            newValidity.fill((byte) 0xFF); // Default to valid
-
-            // Native copy of the old bits into the new segment
-            MemorySegment.copy(validityBitmap, 0, newValidity, 0, (logicalCapacity + 7) / 8);
+            MemorySegment.copy(validityBitmap, 0, newValidity, 0, oldBitmapBytes);
+            if (newBitmapBytes > oldBitmapBytes) {
+                newValidity.asSlice(oldBitmapBytes, newBitmapBytes - oldBitmapBytes).fill((byte) 0xFF);
+            }
 
             this.validityBitmap = newValidity;
-
-            // Tell the child class (like Int64 or Boolean) to also double its specific data buffers
             resizeAdditionalLogicalBuffers(newLogicalCapacity);
-
-            // Update the capacity tracker
             this.logicalCapacity = newLogicalCapacity;
         }
     }
@@ -85,12 +79,15 @@ public abstract sealed class AbstractBufferBuilder permits
      * Marks the currently appending row as "null" by flipping its bit to 0.
      */
     protected void markCurrentNull() {
-        // Find which byte holds our bit, and exactly which of the 8 bits it is
-        long byteIndex = logicalLength / 8;
-        int bitIndex = (int) (logicalLength % 8);
+        long byteIndex = logicalLength >>> 3;
+        int bitIndex = (int) (logicalLength & 7L);
 
-        // Read the byte, force the specific bit to 0 using a bitwise AND inverse mask, and write it back
         byte b = validityBitmap.get(ValueLayout.JAVA_BYTE, byteIndex);
         validityBitmap.set(ValueLayout.JAVA_BYTE, byteIndex, (byte) (b & ~(1 << bitIndex)));
     }
+
+    /**
+     * Seals the builder into an immutable DataBuffer.
+     */
+    public abstract DataBuffer build();
 }
