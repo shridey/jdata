@@ -5,7 +5,6 @@ import io.github.shridey.jdata.core.buffer.Float64Buffer;
 import io.github.shridey.jdata.core.buffer.Int32Buffer;
 import io.github.shridey.jdata.core.buffer.Int64Buffer;
 import io.github.shridey.jdata.core.buffer.UTF8Buffer;
-import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.Test;
 
 import java.lang.foreign.Arena;
@@ -29,7 +28,6 @@ class TableAndSchemaTest {
         assertEquals(DataType.TIMESTAMP_MS, DataType.fromFormat("tsm:UTC"));
         assertEquals(DataType.TIMESTAMP_US, DataType.fromFormat("tsu:Asia/Kolkata"));
 
-        // Must reject arbitrary strings that happen to start with a valid 1-char format prefix
         assertThrows(IllegalArgumentException.class, () -> DataType.fromFormat("string"));
         assertThrows(IllegalArgumentException.class, () -> DataType.fromFormat("list"));
         assertThrows(IllegalArgumentException.class, () -> DataType.fromFormat("uint8"));
@@ -46,7 +44,7 @@ class TableAndSchemaTest {
         mutableList.add(new Field("score", DataType.FLOAT64));
 
         Schema schema = new Schema(mutableList);
-        mutableList.clear(); // Must not affect schema
+        mutableList.clear();
 
         assertEquals(2, schema.columnCount());
         assertEquals(0, schema.getFieldIndex("id"));
@@ -65,38 +63,16 @@ class TableAndSchemaTest {
             Float64Buffer valsWithNull = Float64Buffer.allocate(arena, "val", 3);
             valsWithNull.setNull(1);
 
-            // 1. Row count mismatch
             Schema s1 = new Schema(List.of(new Field("id", DataType.INT32), new Field("val", DataType.INT32)));
-            assertThrows(IllegalArgumentException.class, () -> {
-                try (Table ignored = new Table(s1, List.of(ids, wrongLength))) {
-                    fail("Should have thrown on row count mismatch");
-                }
-            });
+            assertThrows(IllegalArgumentException.class, () -> new Table(s1, List.of(ids, wrongLength)));
+            assertThrows(IllegalArgumentException.class, () -> new Table(s1, List.of(ids, wrongName)));
+            assertThrows(IllegalArgumentException.class, () -> new Table(s1, List.of(ids, valsWithNull)));
 
-            // 2. Column name mismatch
-            assertThrows(IllegalArgumentException.class, () -> {
-                try (Table ignored = new Table(s1, List.of(ids, wrongName))) {
-                    fail("Should have thrown on column name mismatch");
-                }
-            });
-
-            // 3. DataType mismatch
-            assertThrows(IllegalArgumentException.class, () -> {
-                try (Table ignored = new Table(s1, List.of(ids, valsWithNull))) {
-                    fail("Should have thrown on DataType mismatch");
-                }
-            });
-
-            // 4. Non-nullable Field violation
             Schema nonNullSchema = new Schema(List.of(
                     new Field("id", DataType.INT32, false),
                     new Field("val", DataType.FLOAT64, false)
             ));
-            assertThrows(IllegalArgumentException.class, () -> {
-                try (Table ignored = new Table(nonNullSchema, List.of(ids, valsWithNull))) {
-                    fail("Should have thrown on non-nullable violation");
-                }
-            });
+            assertThrows(IllegalArgumentException.class, () -> new Table(nonNullSchema, List.of(ids, valsWithNull)));
         }
     }
 
@@ -118,10 +94,28 @@ class TableAndSchemaTest {
                     new Field("tag", DataType.UTF8, false)
             ));
 
-            try (Table table = new Table(schema, List.of(idCol, populatedTags));
-                 ExecutorService pool = Executors.newFixedThreadPool(4)) {
+            Table table = new Table(schema, List.of(idCol, populatedTags));
 
-                List<Callable<Long>> tasks = createTasks(table);
+            try (ExecutorService pool = Executors.newFixedThreadPool(4)) {
+                List<Callable<Long>> tasks = new ArrayList<>();
+                int chunkSize = 2_500;
+
+                for (int chunk = 0; chunk < 4; chunk++) {
+                    long start = (long) chunk * chunkSize;
+                    Table slice = table.slice(start, chunkSize);
+
+                    tasks.add(() -> {
+                        Int64Buffer sliceIds = (Int64Buffer) slice.getColumn("id");
+                        UTF8Buffer sliceTags = (UTF8Buffer) slice.getColumn("tag");
+                        long sum = 0;
+                        for (int i = 0; i < slice.rowCount(); i++) {
+                            long id = sliceIds.get(i);
+                            assertEquals("row_" + id, sliceTags.getString(i));
+                            sum += id;
+                        }
+                        return sum;
+                    });
+                }
 
                 long totalSum = 0;
                 for (Future<Long> f : pool.invokeAll(tasks)) {
@@ -132,29 +126,5 @@ class TableAndSchemaTest {
                 assertEquals(expectedSum, totalSum);
             }
         }
-    }
-
-    private static @NonNull List<Callable<Long>> createTasks(Table table) {
-        List<Callable<Long>> tasks = new ArrayList<>();
-        int chunkSize = 2_500;
-
-        for (int chunk = 0; chunk < 4; chunk++) {
-            long start = (long) chunk * chunkSize;
-
-            tasks.add(() -> {
-                try (Table slice = table.slice(start, chunkSize)) {
-                    Int64Buffer sliceIds = (Int64Buffer) slice.getColumn("id");
-                    UTF8Buffer sliceTags = (UTF8Buffer) slice.getColumn("tag");
-                    long sum = 0;
-                    for (int i = 0; i < slice.rowCount(); i++) {
-                        long id = sliceIds.get(i);
-                        assertEquals("row_" + id, sliceTags.getString(i));
-                        sum += id;
-                    }
-                    return sum;
-                }
-            });
-        }
-        return tasks;
     }
 }

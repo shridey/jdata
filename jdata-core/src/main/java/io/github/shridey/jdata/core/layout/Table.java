@@ -9,7 +9,7 @@ import java.util.Objects;
  * A sealed, columnar dataset ready for execution.
  * Aligns a Schema with a list of physically populated DataBuffers.
  */
-public final class Table implements AutoCloseable {
+public final class Table {
 
     private final Schema schema;
     private final List<DataBuffer> columns;
@@ -94,31 +94,5 @@ public final class Table implements AutoCloseable {
                 .toList();
 
         return new Table(this.schema, slicedColumns);
-    }
-
-    /**
-     * Safely releases all underlying FFM off-heap memory.
-     */
-    @Override
-    public void close() {
-        RuntimeException firstException = null;
-        for (DataBuffer col : columns) {
-            if (col instanceof AutoCloseable closeable) {
-                try {
-                    closeable.close();
-                } catch (Exception e) {
-                    if (firstException == null) {
-                        firstException = (e instanceof RuntimeException re)
-                                ? re
-                                : new RuntimeException("Failed to close column: " + col.name(), e);
-                    } else {
-                        firstException.addSuppressed(e);
-                    }
-                }
-            }
-        }
-        if (firstException != null) {
-            throw firstException;
-        }
     }
 }

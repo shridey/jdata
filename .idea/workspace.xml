@@ -5,37 +5,12 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="d039c1e1-1885-4ff8-9e45-ea12c0b8fbdb" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/layout/TableAndSchemaTest.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/pom.xml" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/pom.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/DataBuffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/DataBuffer.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/DataType.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/DataType.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/AbstractBufferBuilder.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/AbstractBufferBuilder.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/AbstractDataBuffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/AbstractDataBuffer.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/BooleanBuffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/BooleanBuffer.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/BooleanBufferBuilder.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/BooleanBufferBuilder.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Float32Buffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Float32Buffer.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Float32BufferBuilder.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Float32BufferBuilder.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Float64Buffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Float64Buffer.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Float64BufferBuilder.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Float64BufferBuilder.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Int32Buffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Int32Buffer.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Int32BufferBuilder.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Int32BufferBuilder.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Int64Buffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Int64Buffer.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Int64BufferBuilder.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Int64BufferBuilder.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/UTF8Buffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/UTF8Buffer.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/UTF8BufferBuilder.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/UTF8BufferBuilder.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/ffi/ArrowCExporter.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/ffi/ArrowCExporter.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/ffi/ArrowCImporter.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/ffi/ArrowCImporter.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/ffi/ImportedDataBuffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/ffi/ImportedDataBuffer.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/internal/ArrowCStructs.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/internal/ArrowCStructs.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/internal/ArrowMemoryAllocator.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/internal/ArrowMemoryAllocator.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/layout/Schema.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/layout/Schema.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/layout/Table.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/layout/Table.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/buffer/BooleanBufferTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/buffer/BooleanBufferTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/buffer/PrimitiveBufferTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/buffer/PrimitiveBufferTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/buffer/UTF8BufferTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/buffer/UTF8BufferTest.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/ffi/FFIBridgeTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/ffi/FFIBridgeTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/pom.xml" beforeDir="false" afterPath="$PROJECT_DIR$/pom.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/layout/TableAndSchemaTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/layout/TableAndSchemaTest.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -68,61 +43,61 @@
 }</component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.0" />
-      <entry key="MS500" value="1.0" />
-      <entry key="S2" value="1.0" />
-      <entry key="S5" value="1.0" />
-      <entry key="S10" value="1.0" />
-      <entry key="S30" value="1.0000044771307948" />
-      <entry key="S60" value="1.0032225087465216" />
-      <entry key="M2" value="1.0958562251083102" />
-      <entry key="M5" value="1.8067527735306594" />
-      <entry key="M10" value="2.738360983888275" />
-      <entry key="M15" value="3.275725978372625" />
-      <entry key="M30" value="4.100376241059301" />
-      <entry key="H1" value="6.3412057166055265" />
-      <entry key="H2" value="17.914077090707536" />
-      <entry key="H4" value="45.87581455697532" />
-      <entry key="D1" value="119.30871652420922" />
-      <entry key="W1" value="142.61643484899244" />
+      <entry key="MS100" value="1.2783376126427306" />
+      <entry key="MS500" value="3.262187976119693" />
+      <entry key="S2" value="10.180536197164741" />
+      <entry key="S5" value="20.953002963577156" />
+      <entry key="S10" value="34.10662255696143" />
+      <entry key="S30" value="58.49853476858119" />
+      <entry key="S60" value="70.09180240225484" />
+      <entry key="M2" value="77.39694786142441" />
+      <entry key="M5" value="82.43010250931931" />
+      <entry key="M10" value="84.59042768755789" />
+      <entry key="M15" value="85.71837619672186" />
+      <entry key="M30" value="87.58897845688509" />
+      <entry key="H1" value="90.34307788510908" />
+      <entry key="H2" value="101.19082022387332" />
+      <entry key="H4" value="128.38303727022753" />
+      <entry key="D1" value="203.76741011904744" />
+      <entry key="W1" value="228.3521509877604" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
-      <entry key="MS500" value="6.33741612805E-312" />
-      <entry key="S2" value="2.0709848886255995E-78" />
-      <entry key="S5" value="1.5633855436302104E-31" />
-      <entry key="S10" value="7.544298942545797E-16" />
-      <entry key="S30" value="2.2686004925555223E-5" />
-      <entry key="S60" value="0.009512569252320876" />
-      <entry key="M2" value="0.1949960733113584" />
-      <entry key="M5" value="1.1945644781275773" />
-      <entry key="M10" value="2.1860472157899244" />
-      <entry key="M15" value="2.679450041785262" />
-      <entry key="M30" value="3.5178354091700497" />
-      <entry key="H1" value="5.458416170677252" />
-      <entry key="H2" value="9.69500258550749" />
-      <entry key="H4" value="15.61869959164604" />
-      <entry key="D1" value="26.555877532880082" />
-      <entry key="W1" value="29.47232469806871" />
+      <entry key="MS500" value="0.0" />
+      <entry key="S2" value="2.694E-320" />
+      <entry key="S5" value="2.752798109971206E-128" />
+      <entry key="S10" value="3.165723818355018E-64" />
+      <entry key="S30" value="1.698410764221419E-21" />
+      <entry key="S60" value="8.230764718600653E-11" />
+      <entry key="M2" value="1.8138319344485383E-5" />
+      <entry key="M5" value="0.029149967002164587" />
+      <entry key="M10" value="0.3414866840880925" />
+      <entry key="M15" value="0.777180367210011" />
+      <entry key="M30" value="1.8945828188444833" />
+      <entry key="H1" value="4.005766997094851" />
+      <entry key="H2" value="8.30534062681663" />
+      <entry key="H4" value="14.456049665650665" />
+      <entry key="D1" value="26.215699511845123" />
+      <entry key="W1" value="29.41809231857636" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="4.950974022412249E-4" />
-      <entry key="MS500" value="0.2182418977834407" />
-      <entry key="S2" value="0.6834937259709047" />
-      <entry key="S5" value="0.8588035143254692" />
-      <entry key="S10" value="0.9267165231749516" />
-      <entry key="S30" value="0.9749762452327109" />
-      <entry key="S60" value="0.9999484014956742" />
-      <entry key="M2" value="1.2825466746962366" />
-      <entry key="M5" value="2.992852242871113" />
-      <entry key="M10" value="4.9165121896555375" />
-      <entry key="M15" value="5.948379155718047" />
-      <entry key="M30" value="7.613513657160175" />
-      <entry key="H1" value="11.796130027473378" />
-      <entry key="H2" value="27.606099280816572" />
-      <entry key="H4" value="61.49208003576613" />
-      <entry key="D1" value="145.86384699373323" />
-      <entry key="W1" value="172.08863679877962" />
+      <entry key="MS100" value="1.2588408628724128" />
+      <entry key="MS500" value="3.2497292995493483" />
+      <entry key="S2" value="10.170320731063386" />
+      <entry key="S5" value="20.944356645069643" />
+      <entry key="S10" value="34.09825793424359" />
+      <entry key="S30" value="58.491454364997885" />
+      <entry key="S60" value="70.08691051900232" />
+      <entry key="M2" value="77.39405142227668" />
+      <entry key="M5" value="82.45774607205132" />
+      <entry key="M10" value="84.930006495545" />
+      <entry key="M15" value="86.49312988791144" />
+      <entry key="M30" value="89.48080063592099" />
+      <entry key="H1" value="94.34616635812574" />
+      <entry key="H2" value="109.49354950114132" />
+      <entry key="H4" value="142.8368048930175" />
+      <entry key="D1" value="229.98236727694817" />
+      <entry key="W1" value="257.77012008942893" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{

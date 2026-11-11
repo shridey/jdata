@@ -2,7 +2,6 @@ package io.github.shridey.jdata.core.ffi;
 
 import io.github.shridey.jdata.core.DataType;
 import io.github.shridey.jdata.core.buffer.*;
-import io.github.shridey.jdata.core.internal.ArrowCStructs;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -13,23 +12,18 @@ import java.util.Objects;
 /**
  * A concrete, universal buffer imported from a foreign runtime.
  * Safely holds the memory segments for ANY Arrow data type (Primitives, Strings, etc.)
- * while managing the foreign memory lifecycle via a native C release callback.
+ * while delegating the foreign memory lifecycle to the bound Arena.
  */
-public final class ImportedDataBuffer extends AbstractDataBuffer implements AutoCloseable {
+public final class ImportedDataBuffer extends AbstractDataBuffer {
 
     private final DataType type;
     private final MemorySegment[] buffers;
-    private final MemorySegment arrayPtr;
-    private final MemorySegment releaseFuncPtr;
 
-    ImportedDataBuffer(String name, DataType type, long length, long offset, long importedNullCount,
-                       MemorySegment[] buffers, MemorySegment arrayPtr,
-                       MemorySegment releaseFuncPtr) {
-        super(name, Arena.global(), length, offset, buffers.length > 0 ? buffers[0] : MemorySegment.NULL);
+    ImportedDataBuffer(String name, Arena arena, DataType type, long length, long offset,
+                       long importedNullCount, MemorySegment[] buffers) {
+        super(name, arena, length, offset, buffers.length > 0 ? buffers[0] : MemorySegment.NULL);
         this.type = type;
         this.buffers = buffers;
-        this.arrayPtr = arrayPtr;
-        this.releaseFuncPtr = releaseFuncPtr;
 
         if (importedNullCount >= 0) {
             this.nullCount = importedNullCount;
@@ -57,13 +51,13 @@ public final class ImportedDataBuffer extends AbstractDataBuffer implements Auto
     }
 
     @Override
-    public AbstractBufferBuilder toBuilder(Arena arena) {
+    public AbstractBufferBuilder toBuilder(Arena targetArena) {
         return switch (this.type) {
-            case INT32 -> new Int32BufferBuilder(arena, this.name, this.length).appendImportedBlock(this, 0, this.length);
-            case INT64 -> new Int64BufferBuilder(arena, this.name, this.length).appendImportedBlock(this, 0, this.length);
-            case FLOAT32 -> new Float32BufferBuilder(arena, this.name, this.length).appendImportedBlock(this, 0, this.length);
-            case FLOAT64 -> new Float64BufferBuilder(arena, this.name, this.length).appendImportedBlock(this, 0, this.length);
-            case BOOLEAN -> new BooleanBufferBuilder(arena, this.name, this.length).appendImportedBlock(this, 0, this.length);
+            case INT32 -> new Int32BufferBuilder(targetArena, this.name, this.length).appendImportedBlock(this, 0, this.length);
+            case INT64 -> new Int64BufferBuilder(targetArena, this.name, this.length).appendImportedBlock(this, 0, this.length);
+            case FLOAT32 -> new Float32BufferBuilder(targetArena, this.name, this.length).appendImportedBlock(this, 0, this.length);
+            case FLOAT64 -> new Float64BufferBuilder(targetArena, this.name, this.length).appendImportedBlock(this, 0, this.length);
+            case BOOLEAN -> new BooleanBufferBuilder(targetArena, this.name, this.length).appendImportedBlock(this, 0, this.length);
             case UTF8 -> {
                 long absoluteEndIndex = this.offset + this.length;
                 long startOffsetByteIndex = this.offset * ValueLayout.JAVA_INT.byteSize();
@@ -72,7 +66,7 @@ public final class ImportedDataBuffer extends AbstractDataBuffer implements Auto
                 int startByte = this.buffers[1].get(ValueLayout.JAVA_INT, startOffsetByteIndex);
                 int endByte = this.buffers[1].get(ValueLayout.JAVA_INT, endOffsetByteIndex);
 
-                yield new UTF8BufferBuilder(arena, this.name, this.length, endByte - startByte)
+                yield new UTF8BufferBuilder(targetArena, this.name, this.length, endByte - startByte)
                         .appendImportedBlock(this, 0, this.length);
             }
             default -> throw new UnsupportedOperationException("toBuilder() not yet supported for imported type: " + this.type);
@@ -85,9 +79,8 @@ public final class ImportedDataBuffer extends AbstractDataBuffer implements Auto
         long absoluteOffset = this.offset + sliceOffset;
         long sliceNullCount = (this.nullCount == 0 || sliceLength == 0) ? 0L : -1L;
 
-        // Slices are non-owning views: pass NULL for arrayPtr and releaseFuncPtr so closing a slice does not free the parent.
-        return new ImportedDataBuffer(this.name, this.type, sliceLength, absoluteOffset, sliceNullCount,
-                this.buffers, MemorySegment.NULL, MemorySegment.NULL);
+        return new ImportedDataBuffer(this.name, this.arena, this.type, sliceLength,
+                absoluteOffset, sliceNullCount, this.buffers);
     }
 
     public int getInt(long index) {
@@ -160,20 +153,5 @@ public final class ImportedDataBuffer extends AbstractDataBuffer implements Auto
         byte[] bytes = new byte[stringLength];
         MemorySegment.copy(dataBuffer, ValueLayout.JAVA_BYTE, startByteOffset, bytes, 0, stringLength);
         return new String(bytes, StandardCharsets.UTF_8);
-    }
-
-    @Override
-    public void close() {
-        if (!arrayPtr.equals(MemorySegment.NULL) && !releaseFuncPtr.equals(MemorySegment.NULL)) {
-            MemorySegment liveRelease = arrayPtr.get(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_RELEASE);
-            if (!liveRelease.equals(MemorySegment.NULL)) {
-                try {
-                    ArrowCImporter.NATIVE_RELEASE_CALL.invokeExact(liveRelease, arrayPtr);
-                    arrayPtr.set(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_RELEASE, MemorySegment.NULL);
-                } catch (Throwable t) {
-                    throw new RuntimeException("Failed to invoke native Arrow release callback", t);
-                }
-            }
-        }
     }
 }
