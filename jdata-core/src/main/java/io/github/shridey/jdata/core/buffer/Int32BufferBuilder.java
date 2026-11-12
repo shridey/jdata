@@ -8,11 +8,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Objects;
 
-/**
- * Dynamically builds a 32-bit integer column.
- * Use this class when you are reading data (like a CSV) and do not know
- * how many rows you will have upfront. It grows automatically.
- */
 public final class Int32BufferBuilder extends AbstractBufferBuilder {
 
     private MemorySegment dataBuffer;
@@ -27,17 +22,10 @@ public final class Int32BufferBuilder extends AbstractBufferBuilder {
     @Override
     protected void resizeAdditionalLogicalBuffers(long newLogicalCapacity) {
         long newDataBytes = Math.multiplyExact(newLogicalCapacity, ValueLayout.JAVA_INT.byteSize());
-        MemorySegment newData = ArrowMemoryAllocator.allocateAligned(arena, newDataBytes);
-
         long currentBytes = logicalLength * ValueLayout.JAVA_INT.byteSize();
-        MemorySegment.copy(dataBuffer, 0, newData, 0, currentBytes);
-
-        this.dataBuffer = newData;
+        this.dataBuffer = ArrowMemoryAllocator.reallocateAligned(arena, dataBuffer, currentBytes, newDataBytes);
     }
 
-    /**
-     * Appends a single integer to the end of the column.
-     */
     public Int32BufferBuilder append(int value) {
         ensureLogicalCapacity(1);
 
@@ -48,9 +36,6 @@ public final class Int32BufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
-    /**
-     * Appends a null row to the column.
-     */
     public Int32BufferBuilder appendNull() {
         ensureLogicalCapacity(1);
         markCurrentNull();
@@ -58,9 +43,6 @@ public final class Int32BufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
-    /**
-     * Bulk appends an entire array of integers at hardware speed.
-     */
     public Int32BufferBuilder appendAll(int[] values) {
         Objects.requireNonNull(values, "Values array cannot be null");
         if (values.length == 0) return this;
@@ -77,16 +59,10 @@ public final class Int32BufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
-    /**
-     * Bulk appends data directly from an existing sealed Int32Buffer.
-     */
     public Int32BufferBuilder appendBlock(Int32Buffer source, long srcIndex, long length) {
         return appendImportedBlock(source, srcIndex, length);
     }
 
-    /**
-     * Safely copies data from a DataBuffer.
-     */
     public Int32BufferBuilder appendImportedBlock(DataBuffer source, long srcIndex, long length) {
         Objects.requireNonNull(source, "Source buffer cannot be null");
         if (source.type() != DataType.INT32) {
@@ -119,13 +95,13 @@ public final class Int32BufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
-    /**
-     * Seals the builder into a read-only, immutable Int32Buffer.
-     */
     @Override
     public Int32Buffer build() {
-        MemorySegment sealedValidity = validityBitmap.asSlice(0, (logicalLength + 7L) >>> 3);
-        MemorySegment sealedData = dataBuffer.asSlice(0, logicalLength * ValueLayout.JAVA_INT.byteSize());
+        long paddedValidityBytes = ArrowMemoryAllocator.padTo64((logicalLength + 7L) >>> 3);
+        long paddedDataBytes = ArrowMemoryAllocator.padTo64(logicalLength * ValueLayout.JAVA_INT.byteSize());
+
+        MemorySegment sealedValidity = validityBitmap.asSlice(0, paddedValidityBytes);
+        MemorySegment sealedData = dataBuffer.asSlice(0, paddedDataBytes);
 
         return new Int32Buffer(name, arena, logicalLength, 0, sealedValidity, sealedData);
     }

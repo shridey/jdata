@@ -8,15 +8,9 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Objects;
 
-/**
- * Dynamically builds a variable-length UTF-8 string column.
- */
 public final class UTF8BufferBuilder extends AbstractBufferBuilder {
 
-    // Tracks the starting byte of every string (Buffer 1 in Arrow spec)
     private MemorySegment offsetsBuffer;
-
-    // Tracks the massive block of concatenated raw text (Buffer 2 in Arrow spec)
     private MemorySegment dataBuffer;
 
     private long dataCapacity;
@@ -34,17 +28,16 @@ public final class UTF8BufferBuilder extends AbstractBufferBuilder {
         this.offsetsBuffer = ArrowMemoryAllocator.allocateAligned(arena, offsetsBytes);
 
         this.dataBuffer = ArrowMemoryAllocator.allocateAligned(arena, dataCapacity);
+        this.dataCapacity = this.dataBuffer.byteSize();
     }
 
     @Override
     protected void resizeAdditionalLogicalBuffers(long newLogicalCapacity) {
         long newOffsetsBytes = Math.multiplyExact(newLogicalCapacity + 1L, ValueLayout.JAVA_INT.byteSize());
-        MemorySegment newOffsets = ArrowMemoryAllocator.allocateAligned(arena, newOffsetsBytes);
-
         long currentOffsetsBytes = (logicalLength + 1L) * ValueLayout.JAVA_INT.byteSize();
-        MemorySegment.copy(offsetsBuffer, 0, newOffsets, 0, currentOffsetsBytes);
-
-        this.offsetsBuffer = newOffsets;
+        this.offsetsBuffer = ArrowMemoryAllocator.reallocateAligned(
+                arena, offsetsBuffer, currentOffsetsBytes, newOffsetsBytes
+        );
     }
 
     private void ensureDataCapacity(long additionalBytes) {
@@ -59,13 +52,10 @@ public final class UTF8BufferBuilder extends AbstractBufferBuilder {
         if (targetData > dataCapacity) {
             long doubled = Math.min(dataCapacity * 2L, Integer.MAX_VALUE);
             long newDataCapacity = Math.max(doubled, targetData);
-            MemorySegment newData = ArrowMemoryAllocator.allocateAligned(arena, newDataCapacity);
-
-            if (currentDataOffset > 0) {
-                MemorySegment.copy(dataBuffer, 0, newData, 0, currentDataOffset);
-            }
-            this.dataBuffer = newData;
-            this.dataCapacity = newDataCapacity;
+            this.dataBuffer = ArrowMemoryAllocator.reallocateAligned(
+                    arena, dataBuffer, currentDataOffset, newDataCapacity
+            );
+            this.dataCapacity = this.dataBuffer.byteSize();
         }
     }
 
@@ -112,16 +102,10 @@ public final class UTF8BufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
-    /**
-     * Safely copies a block of strings from an existing sealed UTF8Buffer.
-     */
     public UTF8BufferBuilder appendBlock(UTF8Buffer source, long srcIndex, long length) {
         return appendImportedBlock(source, srcIndex, length);
     }
 
-    /**
-     * Safely copies strings from a DataBuffer.
-     */
     public UTF8BufferBuilder appendImportedBlock(DataBuffer source, long srcIndex, long length) {
         Objects.requireNonNull(source, "Source buffer cannot be null");
         if (source.type() != DataType.UTF8) {
@@ -148,7 +132,6 @@ public final class UTF8BufferBuilder extends AbstractBufferBuilder {
         int offsetDelta = currentDataOffset - srcStartByte;
         boolean hasNulls = source.nullCount() > 0;
 
-        // Fast path: When starting from offset 0 with no nulls, bulk-copy the offsets buffer directly
         if (offsetDelta == 0 && !hasNulls) {
             MemorySegment.copy(
                     srcOffsets, (srcPhysical + 1L) * offsetByteSize,
@@ -175,9 +158,13 @@ public final class UTF8BufferBuilder extends AbstractBufferBuilder {
 
     @Override
     public UTF8Buffer build() {
-        MemorySegment sealedValidity = validityBitmap.asSlice(0, (logicalLength + 7L) >>> 3);
-        MemorySegment sealedOffsets = offsetsBuffer.asSlice(0, (logicalLength + 1L) * ValueLayout.JAVA_INT.byteSize());
-        MemorySegment sealedData = dataBuffer.asSlice(0, currentDataOffset == 0 ? 64L : currentDataOffset);
+        long paddedValidityBytes = ArrowMemoryAllocator.padTo64((logicalLength + 7L) >>> 3);
+        long paddedOffsetsBytes = ArrowMemoryAllocator.padTo64((logicalLength + 1L) * ValueLayout.JAVA_INT.byteSize());
+        long paddedDataBytes = ArrowMemoryAllocator.padTo64(currentDataOffset == 0 ? 64L : currentDataOffset);
+
+        MemorySegment sealedValidity = validityBitmap.asSlice(0, paddedValidityBytes);
+        MemorySegment sealedOffsets = offsetsBuffer.asSlice(0, paddedOffsetsBytes);
+        MemorySegment sealedData = dataBuffer.asSlice(0, paddedDataBytes);
 
         return new UTF8Buffer(name, arena, logicalLength, 0, sealedValidity, sealedOffsets, sealedData);
     }

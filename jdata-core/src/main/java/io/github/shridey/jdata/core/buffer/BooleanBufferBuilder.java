@@ -8,10 +8,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Objects;
 
-/**
- * Dynamically builds a bit-packed Boolean column.
- * Used when ingesting boolean data of an unknown size.
- */
 public final class BooleanBufferBuilder extends AbstractBufferBuilder {
 
     private MemorySegment dataBuffer;
@@ -26,17 +22,12 @@ public final class BooleanBufferBuilder extends AbstractBufferBuilder {
     @Override
     protected void resizeAdditionalLogicalBuffers(long newLogicalCapacity) {
         long newDataBytes = (newLogicalCapacity + 7L) >>> 3;
-        MemorySegment newData = ArrowMemoryAllocator.allocateAligned(arena, newDataBytes);
-
-        long currentBytes = (logicalCapacity + 7L) >>> 3;
-        MemorySegment.copy(dataBuffer, 0, newData, 0, currentBytes);
-
-        this.dataBuffer = newData;
+        if (newDataBytes > dataBuffer.byteSize()) {
+            long currentBytes = (logicalLength + 7L) >>> 3;
+            this.dataBuffer = ArrowMemoryAllocator.reallocateAligned(arena, dataBuffer, currentBytes, newDataBytes);
+        }
     }
 
-    /**
-     * Appends a new boolean value to the end of the column.
-     */
     public BooleanBufferBuilder append(boolean value) {
         ensureLogicalCapacity(1);
 
@@ -55,9 +46,6 @@ public final class BooleanBufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
-    /**
-     * Bulk appends an entire array of booleans.
-     */
     public BooleanBufferBuilder appendAll(boolean[] values) {
         Objects.requireNonNull(values, "Values array cannot be null");
         if (values.length == 0) return this;
@@ -67,13 +55,11 @@ public final class BooleanBufferBuilder extends AbstractBufferBuilder {
         int idx = 0;
         int len = values.length;
 
-        // Align write-head to a byte boundary first if unaligned
         while (idx < len && (logicalLength & 7L) != 0) {
             writeBitAtCurrentLength(values[idx++]);
             logicalLength++;
         }
 
-        // Fast path: Pack 8 booleans per byte write
         long byteCursor = logicalLength >>> 3;
         int fullBytes = (len - idx) >>> 3;
         for (int bIdx = 0; bIdx < fullBytes; bIdx++) {
@@ -90,7 +76,6 @@ public final class BooleanBufferBuilder extends AbstractBufferBuilder {
         }
         logicalLength += (long) fullBytes << 3;
 
-        // Write remaining tail bits (0..7)
         while (idx < len) {
             writeBitAtCurrentLength(values[idx++]);
             logicalLength++;
@@ -111,9 +96,6 @@ public final class BooleanBufferBuilder extends AbstractBufferBuilder {
         dataBuffer.set(ValueLayout.JAVA_BYTE, byteIndex, b);
     }
 
-    /**
-     * Appends a null row to the end of the column.
-     */
     public BooleanBufferBuilder appendNull() {
         ensureLogicalCapacity(1);
         markCurrentNull();
@@ -125,9 +107,6 @@ public final class BooleanBufferBuilder extends AbstractBufferBuilder {
         return appendImportedBlock(source, srcIndex, length);
     }
 
-    /**
-     * Safely copies bit-packed booleans from a DataBuffer.
-     */
     public BooleanBufferBuilder appendImportedBlock(DataBuffer source, long srcIndex, long length) {
         Objects.requireNonNull(source, "Source buffer cannot be null");
         if (source.type() != DataType.BOOLEAN) {
@@ -142,7 +121,6 @@ public final class BooleanBufferBuilder extends AbstractBufferBuilder {
         long srcPhysicalStart = srcIndex + source.offset();
         boolean hasNulls = source.nullCount() > 0;
 
-        // Fast path for byte-aligned source and destination
         if ((srcPhysicalStart & 7L) == 0 && (logicalLength & 7L) == 0) {
             long fullBytes = length >>> 3;
             if (fullBytes > 0) {
@@ -175,15 +153,12 @@ public final class BooleanBufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
-    /**
-     * Seals the builder into an immutable BooleanBuffer for the execution engine.
-     */
     @Override
     public BooleanBuffer build() {
-        long exactBytes = (logicalLength + 7L) >>> 3;
+        long paddedBytes = ArrowMemoryAllocator.padTo64((logicalLength + 7L) >>> 3);
 
-        MemorySegment sealedValidity = validityBitmap.asSlice(0, exactBytes);
-        MemorySegment sealedData = dataBuffer.asSlice(0, exactBytes);
+        MemorySegment sealedValidity = validityBitmap.asSlice(0, paddedBytes);
+        MemorySegment sealedData = dataBuffer.asSlice(0, paddedBytes);
 
         return new BooleanBuffer(name, arena, logicalLength, 0, sealedValidity, sealedData);
     }

@@ -8,10 +8,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Objects;
 
-/**
- * Dynamically builds a 32-bit floating-point (float) column.
- * Used for streaming data or query filtering where the total row count is unknown.
- */
 public final class Float32BufferBuilder extends AbstractBufferBuilder {
 
     private MemorySegment dataBuffer;
@@ -26,17 +22,10 @@ public final class Float32BufferBuilder extends AbstractBufferBuilder {
     @Override
     protected void resizeAdditionalLogicalBuffers(long newLogicalCapacity) {
         long newDataBytes = Math.multiplyExact(newLogicalCapacity, ValueLayout.JAVA_FLOAT.byteSize());
-        MemorySegment newData = ArrowMemoryAllocator.allocateAligned(arena, newDataBytes);
-
         long currentBytes = logicalLength * ValueLayout.JAVA_FLOAT.byteSize();
-        MemorySegment.copy(dataBuffer, 0, newData, 0, currentBytes);
-
-        this.dataBuffer = newData;
+        this.dataBuffer = ArrowMemoryAllocator.reallocateAligned(arena, dataBuffer, currentBytes, newDataBytes);
     }
 
-    /**
-     * Appends a single 32-bit float to the end of the column.
-     */
     public Float32BufferBuilder append(float value) {
         ensureLogicalCapacity(1);
 
@@ -47,9 +36,6 @@ public final class Float32BufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
-    /**
-     * Appends a null row to the column.
-     */
     public Float32BufferBuilder appendNull() {
         ensureLogicalCapacity(1);
         markCurrentNull();
@@ -57,9 +43,6 @@ public final class Float32BufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
-    /**
-     * Bulk appends an array of floats instantly using a native memory copy.
-     */
     public Float32BufferBuilder appendAll(float[] values) {
         Objects.requireNonNull(values, "Values array cannot be null");
         if (values.length == 0) return this;
@@ -80,9 +63,6 @@ public final class Float32BufferBuilder extends AbstractBufferBuilder {
         return appendImportedBlock(source, srcIndex, length);
     }
 
-    /**
-     * Safely copies data from a DataBuffer.
-     */
     public Float32BufferBuilder appendImportedBlock(DataBuffer source, long srcIndex, long length) {
         Objects.requireNonNull(source, "Source buffer cannot be null");
         if (source.type() != DataType.FLOAT32) {
@@ -115,13 +95,13 @@ public final class Float32BufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
-    /**
-     * Seals the builder into a read-only, immutable Float32Buffer.
-     */
     @Override
     public Float32Buffer build() {
-        MemorySegment sealedValidity = validityBitmap.asSlice(0, (logicalLength + 7L) >>> 3);
-        MemorySegment sealedData = dataBuffer.asSlice(0, logicalLength * ValueLayout.JAVA_FLOAT.byteSize());
+        long paddedValidityBytes = ArrowMemoryAllocator.padTo64((logicalLength + 7L) >>> 3);
+        long paddedDataBytes = ArrowMemoryAllocator.padTo64(logicalLength * ValueLayout.JAVA_FLOAT.byteSize());
+
+        MemorySegment sealedValidity = validityBitmap.asSlice(0, paddedValidityBytes);
+        MemorySegment sealedData = dataBuffer.asSlice(0, paddedDataBytes);
 
         return new Float32Buffer(name, arena, logicalLength, 0, sealedValidity, sealedData);
     }

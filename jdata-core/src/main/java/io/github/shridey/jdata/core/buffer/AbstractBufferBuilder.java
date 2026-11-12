@@ -9,9 +9,6 @@ import java.util.Objects;
 
 /**
  * The base class for all Buffer Builders.
- * A "Builder" is used when we don't know the final row count of our data upfront (like reading a CSV).
- * It dynamically grows in memory. This base class specifically manages the "Validity Bitmap"
- * (which tracks nulls) because EVERY Arrow column requires one, regardless of its data type.
  */
 public abstract sealed class AbstractBufferBuilder permits
         BooleanBufferBuilder, Int32BufferBuilder, Int64BufferBuilder,
@@ -32,7 +29,6 @@ public abstract sealed class AbstractBufferBuilder permits
             throw new IllegalArgumentException("initialLogicalCapacity cannot be negative: " + initialLogicalCapacity);
         }
 
-        // Start with a minimum of 8 rows to avoid fractional byte math
         this.logicalCapacity = Math.max(initialLogicalCapacity, 8L);
 
         long bitmapBytes = (this.logicalCapacity + 7L) >>> 3;
@@ -40,10 +36,6 @@ public abstract sealed class AbstractBufferBuilder permits
         this.validityBitmap.fill((byte) 0xFF);
     }
 
-    /**
-     * Checks if we have enough room for new rows. If not, it doubles our capacity
-     * and copies the old memory into the new, larger memory block.
-     */
     protected void ensureLogicalCapacity(long additionalRows) {
         if (additionalRows < 0) {
             throw new IllegalArgumentException("additionalRows cannot be negative: " + additionalRows);
@@ -54,30 +46,28 @@ public abstract sealed class AbstractBufferBuilder permits
             long doubled = (logicalCapacity > Long.MAX_VALUE / 2) ? Long.MAX_VALUE : logicalCapacity * 2;
             long newLogicalCapacity = Math.max(doubled, targetLogical);
 
-            long oldBitmapBytes = (logicalCapacity + 7L) >>> 3;
-            long newBitmapBytes = (newLogicalCapacity + 7L) >>> 3;
+            // 1. Resize the child data buffer FIRST while it is still at the tip of the slab
+            resizeAdditionalLogicalBuffers(newLogicalCapacity);
 
-            MemorySegment newValidity = ArrowMemoryAllocator.allocateAligned(arena, newBitmapBytes);
-            MemorySegment.copy(validityBitmap, 0, newValidity, 0, oldBitmapBytes);
-            if (newBitmapBytes > oldBitmapBytes) {
-                newValidity.asSlice(oldBitmapBytes, newBitmapBytes - oldBitmapBytes).fill((byte) 0xFF);
+            // 2. Only reallocate validityBitmap if required bytes exceed current physical capacity (512 bits per 64B).
+            // Grow bitmap by 8x (64B -> 512B -> 4096B) so it doesn't leapfrog dataBuffer on every doubling.
+            long requiredBitmapBytes = (newLogicalCapacity + 7L) >>> 3;
+            if (requiredBitmapBytes > validityBitmap.byteSize()) {
+                long oldPhysicalBytes = validityBitmap.byteSize();
+                long scaledBitmapBytes = Math.clamp(oldPhysicalBytes * 8L, requiredBitmapBytes, Integer.MAX_VALUE);
+                MemorySegment newValidity = ArrowMemoryAllocator.reallocateAligned(
+                        arena, validityBitmap, oldPhysicalBytes, scaledBitmapBytes
+                );
+                newValidity.asSlice(oldPhysicalBytes, newValidity.byteSize() - oldPhysicalBytes).fill((byte) 0xFF);
+                this.validityBitmap = newValidity;
             }
 
-            this.validityBitmap = newValidity;
-            resizeAdditionalLogicalBuffers(newLogicalCapacity);
             this.logicalCapacity = newLogicalCapacity;
         }
     }
 
-    /**
-     * An abstract hook. When the base class resizes the bitmap, the child class
-     * MUST use this method to resize its physical data buffers in lockstep.
-     */
     protected abstract void resizeAdditionalLogicalBuffers(long newLogicalCapacity);
 
-    /**
-     * Marks the currently appending row as "null" by flipping its bit to 0.
-     */
     protected void markCurrentNull() {
         long byteIndex = logicalLength >>> 3;
         int bitIndex = (int) (logicalLength & 7L);
@@ -86,8 +76,5 @@ public abstract sealed class AbstractBufferBuilder permits
         validityBitmap.set(ValueLayout.JAVA_BYTE, byteIndex, (byte) (b & ~(1 << bitIndex)));
     }
 
-    /**
-     * Seals the builder into an immutable DataBuffer.
-     */
     public abstract DataBuffer build();
 }
