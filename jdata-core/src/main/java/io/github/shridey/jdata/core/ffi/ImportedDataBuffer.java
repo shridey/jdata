@@ -11,19 +11,21 @@ import java.util.Objects;
 
 /**
  * A concrete, universal buffer imported from a foreign runtime.
- * Safely holds the memory segments for ANY Arrow data type (Primitives, Strings, etc.)
+ * Safely holds the memory segments for ANY Arrow data type (Primitives, Strings, Dictionaries, etc.)
  * while delegating the foreign memory lifecycle to the bound Arena.
  */
 public final class ImportedDataBuffer extends AbstractDataBuffer {
 
     private final DataType type;
     private final MemorySegment[] buffers;
+    private final ImportedDataBuffer dictionary;
 
     ImportedDataBuffer(String name, Arena arena, DataType type, long length, long offset,
-                       long importedNullCount, MemorySegment[] buffers) {
+                       long importedNullCount, MemorySegment[] buffers, ImportedDataBuffer dictionary) {
         super(name, arena, length, offset, buffers.length > 0 ? buffers[0] : MemorySegment.NULL);
         this.type = type;
         this.buffers = buffers;
+        this.dictionary = dictionary;
 
         if (importedNullCount >= 0) {
             this.nullCount = importedNullCount;
@@ -50,6 +52,13 @@ public final class ImportedDataBuffer extends AbstractDataBuffer {
         return buffers[index];
     }
 
+    /**
+     * Returns the imported dictionary buffer if this buffer is of type {@link DataType#DICTIONARY}, or {@code null} otherwise.
+     */
+    public ImportedDataBuffer dictionary() {
+        return dictionary;
+    }
+
     @Override
     public AbstractBufferBuilder toBuilder(Arena targetArena) {
         return switch (this.type) {
@@ -69,6 +78,9 @@ public final class ImportedDataBuffer extends AbstractDataBuffer {
                 yield new UTF8BufferBuilder(targetArena, this.name, this.length, endByte - startByte)
                         .appendImportedBlock(this, 0, this.length);
             }
+            case DICTIONARY -> new DictionaryBufferBuilder(
+                    targetArena, this.name, this.length, (int) Math.max(this.dictionary.length(), 16L)
+            ).appendImportedBlock(this, 0, this.length);
             default -> throw new UnsupportedOperationException("toBuilder() not yet supported for imported type: " + this.type);
         };
     }
@@ -80,11 +92,18 @@ public final class ImportedDataBuffer extends AbstractDataBuffer {
         long sliceNullCount = (this.nullCount == 0 || sliceLength == 0) ? 0L : -1L;
 
         return new ImportedDataBuffer(this.name, this.arena, this.type, sliceLength,
-                absoluteOffset, sliceNullCount, this.buffers);
+                absoluteOffset, sliceNullCount, this.buffers, this.dictionary);
     }
 
     public int getInt(long index) {
         if (type != DataType.INT32) throw new IllegalStateException("Buffer is not INT32, is " + type);
+        checkBounds(index);
+        long physicalIndex = offset + index;
+        return buffers[1].get(ValueLayout.JAVA_INT, physicalIndex * ValueLayout.JAVA_INT.byteSize());
+    }
+
+    public int getIndex(long index) {
+        if (type != DataType.DICTIONARY) throw new IllegalStateException("Buffer is not DICTIONARY, is " + type);
         checkBounds(index);
         long physicalIndex = offset + index;
         return buffers[1].get(ValueLayout.JAVA_INT, physicalIndex * ValueLayout.JAVA_INT.byteSize());
@@ -111,9 +130,6 @@ public final class ImportedDataBuffer extends AbstractDataBuffer {
         return buffers[1].get(ValueLayout.JAVA_FLOAT, physicalIndex * ValueLayout.JAVA_FLOAT.byteSize());
     }
 
-    /**
-     * Retrieves an imported boolean value at the specified index, respecting the logical offset and bit-packing.
-     */
     public boolean getBoolean(long index) {
         if (type != DataType.BOOLEAN) throw new IllegalStateException("Buffer is not BOOLEAN, is " + type);
         checkBounds(index);
@@ -126,11 +142,16 @@ public final class ImportedDataBuffer extends AbstractDataBuffer {
         return ((b >>> bitOffset) & 1) == 1;
     }
 
-    /**
-     * Retrieves an imported UTF-8 string value at the specified index, respecting the logical offset.
-     */
     public String getString(long index) {
-        if (type != DataType.UTF8) throw new IllegalStateException("Buffer is not UTF8, is " + type);
+        if (type == DataType.DICTIONARY) {
+            checkBounds(index);
+            if (isNull(index)) {
+                return null;
+            }
+            return dictionary.getString(getIndex(index));
+        }
+
+        if (type != DataType.UTF8) throw new IllegalStateException("Buffer is not UTF8 or DICTIONARY, is " + type);
         checkBounds(index);
         if (isNull(index)) {
             return null;

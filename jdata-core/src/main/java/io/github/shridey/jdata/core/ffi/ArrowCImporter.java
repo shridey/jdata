@@ -108,7 +108,7 @@ public final class ArrowCImporter {
         try {
             MemorySegment formatPtr = schema.get(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_FORMAT);
             String format = formatPtr.reinterpret(Long.MAX_VALUE).getString(0);
-            DataType type = DataType.fromFormat(format);
+            DataType physicalType = DataType.fromFormat(format);
 
             MemorySegment namePtr = schema.get(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_NAME);
             String name = namePtr.equals(MemorySegment.NULL)
@@ -138,24 +138,24 @@ public final class ArrowCImporter {
                     resolvedBuffers[i] = rawPtr.reinterpret(bitmapBytes, arena, null);
                 } else if (i == 1) {
                     long buffer1Bytes;
-                    if (type == DataType.BOOLEAN) {
+                    if (physicalType == DataType.BOOLEAN) {
                         buffer1Bytes = (totalElements + 7L) >>> 3;
-                    } else if (type == DataType.UTF8 || type == DataType.BINARY) {
+                    } else if (physicalType == DataType.UTF8 || physicalType == DataType.BINARY) {
                         buffer1Bytes = Math.multiplyExact(totalElements + 1L, Integer.BYTES);
-                    } else if (type == DataType.LARGE_UTF8 || type == DataType.LARGE_BINARY) {
+                    } else if (physicalType == DataType.LARGE_UTF8 || physicalType == DataType.LARGE_BINARY) {
                         buffer1Bytes = Math.multiplyExact(totalElements + 1L, Long.BYTES);
-                    } else if (type.byteSize() > 0) {
-                        buffer1Bytes = Math.multiplyExact(totalElements, type.byteSize());
+                    } else if (physicalType.byteSize() > 0) {
+                        buffer1Bytes = Math.multiplyExact(totalElements, physicalType.byteSize());
                     } else {
                         buffer1Bytes = Integer.MAX_VALUE;
                     }
                     resolvedBuffers[i] = rawPtr.reinterpret(buffer1Bytes, arena, null);
                 } else if (i == 2) {
                     long buffer2Bytes;
-                    if ((type == DataType.UTF8 || type == DataType.BINARY) && !resolvedBuffers[1].equals(MemorySegment.NULL)) {
+                    if ((physicalType == DataType.UTF8 || physicalType == DataType.BINARY) && !resolvedBuffers[1].equals(MemorySegment.NULL)) {
                         int endByte = resolvedBuffers[1].get(ValueLayout.JAVA_INT, totalElements * Integer.BYTES);
                         buffer2Bytes = Math.max(endByte, 0);
-                    } else if ((type == DataType.LARGE_UTF8 || type == DataType.LARGE_BINARY) && !resolvedBuffers[1].equals(MemorySegment.NULL)) {
+                    } else if ((physicalType == DataType.LARGE_UTF8 || physicalType == DataType.LARGE_BINARY) && !resolvedBuffers[1].equals(MemorySegment.NULL)) {
                         long endByte = resolvedBuffers[1].get(ValueLayout.JAVA_LONG, totalElements * Long.BYTES);
                         buffer2Bytes = Math.max(endByte, 0L);
                     } else {
@@ -167,7 +167,23 @@ public final class ArrowCImporter {
                 }
             }
 
-            return new ImportedDataBuffer(name, arena, type, length, offset, nullCount, resolvedBuffers);
+            MemorySegment dictSchemaPtr = schema.get(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_DICTIONARY);
+            MemorySegment dictArrayPtr = array.get(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_DICTIONARY);
+
+            if (!dictSchemaPtr.equals(MemorySegment.NULL)) {
+                if (dictArrayPtr.equals(MemorySegment.NULL)) {
+                    throw new IllegalStateException("ArrowSchema specifies a dictionary, but ArrowArray.dictionary is NULL.");
+                }
+                if (physicalType != DataType.INT32) {
+                    throw new UnsupportedOperationException("Only INT32 dictionary indices are supported, got: " + physicalType);
+                }
+                ImportedDataBuffer dictionaryBuffer = importBuffer(dictArrayPtr, dictSchemaPtr, arena);
+                return new ImportedDataBuffer(
+                        name, arena, DataType.DICTIONARY, length, offset, nullCount, resolvedBuffers, dictionaryBuffer
+                );
+            }
+
+            return new ImportedDataBuffer(name, arena, physicalType, length, offset, nullCount, resolvedBuffers, null);
         } finally {
             releaseSchemaIfPresent(schema);
         }

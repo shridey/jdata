@@ -8,7 +8,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
 public abstract sealed class AbstractDataBuffer implements DataBuffer
-        permits BooleanBuffer, Float32Buffer, Float64Buffer, Int32Buffer, Int64Buffer, UTF8Buffer, ImportedDataBuffer {
+        permits BooleanBuffer, Float32Buffer, Float64Buffer, Int32Buffer, Int64Buffer, UTF8Buffer, DictionaryBuffer, ImportedDataBuffer {
 
     protected final String name;
     protected final Arena arena;

@@ -12,7 +12,7 @@ import java.util.Objects;
  */
 public abstract sealed class AbstractBufferBuilder permits
         BooleanBufferBuilder, Int32BufferBuilder, Int64BufferBuilder,
-        Float32BufferBuilder, Float64BufferBuilder, UTF8BufferBuilder {
+        Float32BufferBuilder, Float64BufferBuilder, UTF8BufferBuilder, DictionaryBufferBuilder {
 
     protected final Arena arena;
     protected final String name;

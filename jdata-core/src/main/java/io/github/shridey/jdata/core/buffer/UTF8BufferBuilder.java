@@ -156,6 +156,25 @@ public final class UTF8BufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
+    MemorySegment offsetsSegment() {
+        return offsetsBuffer;
+    }
+
+    MemorySegment dataSegment() {
+        return dataBuffer;
+    }
+
+    void appendRawBytes(MemorySegment srcData, long srcStartByte, int byteLength) {
+        ensureLogicalCapacity(1);
+        ensureDataCapacity(byteLength);
+        if (byteLength > 0) {
+            MemorySegment.copy(srcData, srcStartByte, dataBuffer, currentDataOffset, byteLength);
+        }
+        currentDataOffset += byteLength;
+        logicalLength++;
+        offsetsBuffer.set(ValueLayout.JAVA_INT, logicalLength * ValueLayout.JAVA_INT.byteSize(), currentDataOffset);
+    }
+
     @Override
     public UTF8Buffer build() {
         long paddedValidityBytes = ArrowMemoryAllocator.padTo64((logicalLength + 7L) >>> 3);

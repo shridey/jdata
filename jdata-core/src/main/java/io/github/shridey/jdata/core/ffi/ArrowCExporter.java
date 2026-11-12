@@ -1,6 +1,8 @@
 package io.github.shridey.jdata.core.ffi;
 
 import io.github.shridey.jdata.core.DataBuffer;
+import io.github.shridey.jdata.core.DataType;
+import io.github.shridey.jdata.core.buffer.DictionaryBuffer;
 import io.github.shridey.jdata.core.internal.ArrowCStructs;
 import io.github.shridey.jdata.core.layout.Table;
 
@@ -120,9 +122,14 @@ public final class ArrowCExporter {
             buffersPtrArray.setAtIndex(ValueLayout.ADDRESS, i, column.buffer(i));
         }
 
+        DataBuffer dictBuffer = extractDictionary(column);
+        MemorySegment dictArrayPtr = dictBuffer != null
+                ? exportArray(dictBuffer, structArena)
+                : MemorySegment.NULL;
+
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_BUFFERS, buffersPtrArray);
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_CHILDREN, MemorySegment.NULL);
-        struct.set(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_DICTIONARY, MemorySegment.NULL);
+        struct.set(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_DICTIONARY, dictArrayPtr);
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_RELEASE, ARRAY_RELEASE_STUB);
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_PRIVATE_DATA, MemorySegment.NULL);
 
@@ -135,7 +142,15 @@ public final class ArrowCExporter {
 
     private static MemorySegment exportSchema(DataBuffer column, boolean nullable, Arena structArena) {
         MemorySegment struct = structArena.allocate(ArrowCStructs.ARROW_SCHEMA_LAYOUT);
-        String formatString = column.type().getFormat();
+
+        DataBuffer dictBuffer = extractDictionary(column);
+        // Per Arrow C Data spec: a dictionary-encoded schema's format is its index integer type ("i" for INT32)
+        String formatString = dictBuffer != null
+                ? DataType.INT32.getFormat()
+                : column.type().getFormat();
+        MemorySegment dictSchemaPtr = dictBuffer != null
+                ? exportSchema(dictBuffer, false, structArena)
+                : MemorySegment.NULL;
 
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_FORMAT, structArena.allocateFrom(formatString));
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_NAME, structArena.allocateFrom(column.name()));
@@ -143,15 +158,29 @@ public final class ArrowCExporter {
         struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.SCHEMA_OFFSET_FLAGS, nullable ? ARROW_FLAG_NULLABLE : 0L);
         struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.SCHEMA_OFFSET_N_CHILDREN, 0L);
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_CHILDREN, MemorySegment.NULL);
-        struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_DICTIONARY, MemorySegment.NULL);
+        struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_DICTIONARY, dictSchemaPtr);
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_RELEASE, SCHEMA_RELEASE_STUB);
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_PRIVATE_DATA, MemorySegment.NULL);
 
         return struct;
     }
 
+    private static DataBuffer extractDictionary(DataBuffer column) {
+        if (column instanceof DictionaryBuffer db) {
+            return db.dictionary();
+        }
+        if (column instanceof ImportedDataBuffer idb) {
+            return idb.dictionary();
+        }
+        return null;
+    }
+
     public static void releaseArrayCallback(MemorySegment structPtr) {
         MemorySegment struct = structPtr.reinterpret(ArrowCStructs.ARROW_ARRAY_LAYOUT.byteSize());
+        if (struct.get(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_RELEASE).equals(MemorySegment.NULL)) {
+            return;
+        }
+
         long nChildren = struct.get(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_N_CHILDREN);
         MemorySegment childrenPtr = struct.get(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_CHILDREN);
 
@@ -164,11 +193,21 @@ public final class ArrowCExporter {
                 }
             }
         }
+
+        MemorySegment dictPtr = struct.get(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_DICTIONARY);
+        if (!dictPtr.equals(MemorySegment.NULL)) {
+            releaseArrayCallback(dictPtr);
+        }
+
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_RELEASE, MemorySegment.NULL);
     }
 
     public static void releaseSchemaCallback(MemorySegment structPtr) {
         MemorySegment struct = structPtr.reinterpret(ArrowCStructs.ARROW_SCHEMA_LAYOUT.byteSize());
+        if (struct.get(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_RELEASE).equals(MemorySegment.NULL)) {
+            return;
+        }
+
         long nChildren = struct.get(ValueLayout.JAVA_LONG, ArrowCStructs.SCHEMA_OFFSET_N_CHILDREN);
         MemorySegment childrenPtr = struct.get(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_CHILDREN);
 
@@ -181,6 +220,12 @@ public final class ArrowCExporter {
                 }
             }
         }
+
+        MemorySegment dictPtr = struct.get(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_DICTIONARY);
+        if (!dictPtr.equals(MemorySegment.NULL)) {
+            releaseSchemaCallback(dictPtr);
+        }
+
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_RELEASE, MemorySegment.NULL);
     }
 }
