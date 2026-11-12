@@ -71,6 +71,13 @@ public final class Int32BufferBuilder extends AbstractBufferBuilder {
         Objects.checkFromIndexSize(srcIndex, length, source.length());
         if (length == 0) return this;
 
+        if (source instanceof ChunkedBuffer cb) {
+            for (DataBuffer chunk : cb.slice(srcIndex, length).chunks()) {
+                appendImportedBlock(chunk, 0, chunk.length());
+            }
+            return this;
+        }
+
         ensureLogicalCapacity(length);
 
         long byteSize = ValueLayout.JAVA_INT.byteSize();

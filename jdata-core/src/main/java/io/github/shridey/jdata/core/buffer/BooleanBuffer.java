@@ -7,11 +7,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Objects;
 
-/**
- * A sealed, read-only Arrow column for Booleans.
- * Unlike integers which take 4 bytes each, these booleans are bit-packed
- * (8 true/false values fit inside a single byte) to save massive amounts of memory.
- */
 public final class BooleanBuffer extends AbstractDataBuffer {
 
     private final MemorySegment dataBuffer;
@@ -22,140 +17,156 @@ public final class BooleanBuffer extends AbstractDataBuffer {
     }
 
     public static BooleanBuffer allocate(Arena arena, String name, long length) {
+        Objects.requireNonNull(arena, "Arena cannot be null");
+        Objects.requireNonNull(name, "Column name cannot be null");
         if (length < 0) {
             throw new IllegalArgumentException("Buffer length cannot be negative: " + length);
         }
-        long byteSize = (length + 7L) >>> 3;
 
-        MemorySegment validityBitmap = ArrowMemoryAllocator.allocateAligned(arena, byteSize);
-        MemorySegment dataBuffer = ArrowMemoryAllocator.allocateAligned(arena, byteSize);
+        long requiredBytes = (length + 7L) >>> 3;
+        MemorySegment validityBitmap = ArrowMemoryAllocator.allocateAligned(arena, requiredBytes);
+        MemorySegment dataBuffer = ArrowMemoryAllocator.allocateAligned(arena, requiredBytes);
 
         BooleanBuffer buffer = new BooleanBuffer(name, arena, length, 0, validityBitmap, dataBuffer);
         buffer.setAllValid();
         return buffer;
     }
 
-    public void set(long index, boolean value) {
-        checkBounds(index);
-        long physicalIndex = index + this.offset;
-
-        long byteIndex = physicalIndex >>> 3;
-        int bitIndex = (int) (physicalIndex & 7L);
-        byte b = dataBuffer.get(ValueLayout.JAVA_BYTE, byteIndex);
-
-        if (value) {
-            b = (byte) (b | (1 << bitIndex));
-        } else {
-            b = (byte) (b & ~(1 << bitIndex));
-        }
-
-        dataBuffer.set(ValueLayout.JAVA_BYTE, byteIndex, b);
-        markValid(index);
+    /**
+     * Zero-copy wraps pre-allocated or memory-mapped validity and bit-packed data segments.
+     */
+    public static BooleanBuffer wrap(String name, Arena arena, long length, long offset,
+                                     MemorySegment validityBitmap, MemorySegment dataBuffer) {
+        long totalElements = Math.addExact(length, offset);
+        long minDataBytes = (totalElements + 7L) >>> 3;
+        ArrowMemoryAllocator.validateWrapBounds(name, arena, length, offset, validityBitmap, dataBuffer, minDataBytes);
+        return new BooleanBuffer(name, arena, length, offset, validityBitmap, dataBuffer);
     }
 
     public boolean get(long index) {
         checkBounds(index);
         long physicalIndex = index + this.offset;
-
         long byteIndex = physicalIndex >>> 3;
         int bitIndex = (int) (physicalIndex & 7L);
-        byte b = dataBuffer.get(ValueLayout.JAVA_BYTE, byteIndex);
 
-        return (b & (1 << bitIndex)) != 0;
+        byte b = dataBuffer.get(ValueLayout.JAVA_BYTE, byteIndex);
+        return ((b >>> bitIndex) & 1) != 0;
+    }
+
+    public void set(long index, boolean value) {
+        checkBounds(index);
+        long physicalIndex = index + this.offset;
+        long byteIndex = physicalIndex >>> 3;
+        int bitIndex = (int) (physicalIndex & 7L);
+
+        byte b = dataBuffer.get(ValueLayout.JAVA_BYTE, byteIndex);
+        if (value) {
+            b = (byte) (b | (1 << bitIndex));
+        } else {
+            b = (byte) (b & ~(1 << bitIndex));
+        }
+        dataBuffer.set(ValueLayout.JAVA_BYTE, byteIndex, b);
+        setValid(index);
+    }
+
+    public void copyFrom(boolean[] source) {
+        Objects.requireNonNull(source, "Source array cannot be null");
+        if (source.length > this.length) {
+            throw new IndexOutOfBoundsException("Source array is larger than the buffer capacity.");
+        }
+
+        int len = source.length;
+        if ((this.offset & 7L) == 0) {
+            long byteOffset = this.offset >>> 3;
+            int fullBytes = len >>> 3;
+            for (int bIdx = 0; bIdx < fullBytes; bIdx++) {
+                int base = bIdx << 3;
+                int packed = (source[base] ? 1 : 0)
+                        | (source[base + 1] ? 2 : 0)
+                        | (source[base + 2] ? 4 : 0)
+                        | (source[base + 3] ? 8 : 0)
+                        | (source[base + 4] ? 16 : 0)
+                        | (source[base + 5] ? 32 : 0)
+                        | (source[base + 6] ? 64 : 0)
+                        | (source[base + 7] ? 128 : 0);
+                dataBuffer.set(ValueLayout.JAVA_BYTE, byteOffset + bIdx, (byte) packed);
+            }
+
+            int tailStart = fullBytes << 3;
+            if (tailStart < len) {
+                long tailByteIndex = byteOffset + fullBytes;
+                int tailBits = len - tailStart;
+                int tailMask = (1 << tailBits) - 1;
+                int tailPacked = 0;
+                for (int b = 0; b < tailBits; b++) {
+                    if (source[tailStart + b]) {
+                        tailPacked |= (1 << b);
+                    }
+                }
+                byte existing = dataBuffer.get(ValueLayout.JAVA_BYTE, tailByteIndex);
+                byte merged = (byte) ((existing & ~tailMask) | tailPacked);
+                dataBuffer.set(ValueLayout.JAVA_BYTE, tailByteIndex, merged);
+            }
+
+            if (len == this.length) {
+                setAllValid();
+            } else {
+                for (int i = 0; i < len; i++) {
+                    setValid(i);
+                }
+            }
+        } else {
+            for (int i = 0; i < len; i++) {
+                set(i, source[i]);
+            }
+        }
     }
 
     public void copyBlock(BooleanBuffer source, long srcIndex, long destIndex, long length) {
         Objects.requireNonNull(source, "Source buffer cannot be null");
         Objects.checkFromIndexSize(srcIndex, length, source.length);
         Objects.checkFromIndexSize(destIndex, length, this.length);
-
         if (length == 0) return;
 
-        long srcPhysical = srcIndex + source.offset;
-        long destPhysical = destIndex + this.offset;
+        long actualSrcIndex = srcIndex + source.offset;
+        long actualDestIndex = destIndex + this.offset;
 
-        // FAST PATH: Both slice offsets and length align on byte boundaries
-        if ((srcPhysical & 7L) == 0 && (destPhysical & 7L) == 0 && (length & 7L) == 0) {
-            long byteOffsetSrc = srcPhysical >>> 3;
-            long byteOffsetDest = destPhysical >>> 3;
+        if ((actualSrcIndex & 7L) == 0 && (actualDestIndex & 7L) == 0 && (length & 7L) == 0) {
             long byteLength = length >>> 3;
+            long srcByteOffset = actualSrcIndex >>> 3;
+            long destByteOffset = actualDestIndex >>> 3;
 
-            MemorySegment.copy(source.dataBuffer, byteOffsetSrc, this.dataBuffer, byteOffsetDest, byteLength);
-            MemorySegment.copy(source.validityBitmap, byteOffsetSrc, this.validityBitmap, byteOffsetDest, byteLength);
-            this.nullCount = -1;
-            return;
-        }
-
-        // SLOW PATH: Bit-by-bit copy for unaligned bit windows
-        for (long i = 0; i < length; i++) {
-            long currentSrc = srcIndex + i;
-            long currentDest = destIndex + i;
-
-            // set() automatically calls markValid(currentDest)
-            this.set(currentDest, source.get(currentSrc));
-            if (source.isNull(currentSrc)) {
-                this.setNull(currentDest);
-            }
-        }
-    }
-
-    public void copyFrom(boolean[] source) {
-        Objects.requireNonNull(source, "Source array cannot be null");
-        if (source.length != this.length) {
-            throw new IllegalArgumentException("Array length must exactly match buffer length.");
-        }
-
-        // If sliced at a non-byte boundary, use bit-level writes to avoid clobbering neighboring bits
-        if ((this.offset & 7L) != 0) {
-            for (int i = 0; i < source.length; i++) {
-                this.set(i, source[i]);
-            }
-            return;
-        }
-
-        // Fast path: Pack 8 booleans at a time into a single byte write
-        long byteOffset = this.offset >>> 3;
-        int fullBytes = source.length >>> 3;
-        int idx = 0;
-
-        for (int bIdx = 0; bIdx < fullBytes; bIdx++) {
-            int packed = (source[idx] ? 1 : 0)
-                    | (source[idx + 1] ? 2 : 0)
-                    | (source[idx + 2] ? 4 : 0)
-                    | (source[idx + 3] ? 8 : 0)
-                    | (source[idx + 4] ? 16 : 0)
-                    | (source[idx + 5] ? 32 : 0)
-                    | (source[idx + 6] ? 64 : 0)
-                    | (source[idx + 7] ? 128 : 0);
-            dataBuffer.set(ValueLayout.JAVA_BYTE, byteOffset + bIdx, (byte) packed);
-            idx += 8;
-        }
-
-        int remainder = source.length & 7;
-        if (remainder > 0) {
-            int packed = 0;
-            for (int bit = 0; bit < remainder; bit++) {
-                if (source[idx + bit]) {
-                    packed |= (1 << bit);
+            MemorySegment.copy(source.dataBuffer, srcByteOffset, this.dataBuffer, destByteOffset, byteLength);
+            if (!this.lacksValidityBitmap()) {
+                if (source.lacksValidityBitmap()) {
+                    this.validityBitmap.asSlice(destByteOffset, byteLength).fill((byte) 0xFF);
+                } else {
+                    MemorySegment.copy(source.validityBitmap, srcByteOffset, this.validityBitmap, destByteOffset, byteLength);
                 }
             }
-            int mask = (1 << remainder) - 1;
-            long tailByteIndex = byteOffset + fullBytes;
-            byte existing = dataBuffer.get(ValueLayout.JAVA_BYTE, tailByteIndex);
-            dataBuffer.set(ValueLayout.JAVA_BYTE, tailByteIndex, (byte) ((existing & ~mask) | packed));
+            this.nullCount = -1;
+        } else {
+            boolean srcHasNulls = source.nullCount() > 0;
+            for (long i = 0; i < length; i++) {
+                if (srcHasNulls && source.isNull(srcIndex + i)) {
+                    this.setNull(destIndex + i);
+                } else {
+                    this.set(destIndex + i, source.get(srcIndex + i));
+                }
+            }
         }
-
-        setAllValid();
     }
 
     public boolean[] toArray() {
         if (this.length > Integer.MAX_VALUE) {
             throw new IllegalStateException("Buffer length is too large to fit in a Java array.");
         }
+
         int len = (int) this.length;
         boolean[] target = new boolean[len];
+
         for (int i = 0; i < len; i++) {
-            target[i] = this.get(i);
+            target[i] = get(i);
         }
         return target;
     }
@@ -181,7 +192,7 @@ public final class BooleanBuffer extends AbstractDataBuffer {
         return switch (index) {
             case 0 -> super.buffer(0);
             case 1 -> dataBuffer;
-            default -> throw new IndexOutOfBoundsException("BooleanBuffer has exactly 2 buffers.");
+            default -> throw new IndexOutOfBoundsException("BooleanBuffer only has 2 buffers (0 and 1).");
         };
     }
 }

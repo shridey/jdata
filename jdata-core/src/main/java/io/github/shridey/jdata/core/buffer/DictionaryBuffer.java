@@ -82,6 +82,18 @@ public final class DictionaryBuffer extends AbstractDataBuffer {
     }
 
     /**
+     * Zero-copy wraps pre-allocated or memory-mapped validity and 32-bit index segments with a UTF8Buffer dictionary.
+     */
+    public static DictionaryBuffer wrap(String name, Arena arena, long length, long offset,
+                                        MemorySegment validityBitmap, MemorySegment indicesBuffer, UTF8Buffer dictionary) {
+        Objects.requireNonNull(dictionary, "dictionary cannot be null");
+        long totalElements = Math.addExact(length, offset);
+        long minIndicesBytes = Math.multiplyExact(totalElements, ValueLayout.JAVA_INT.byteSize());
+        ArrowMemoryAllocator.validateWrapBounds(name, arena, length, offset, validityBitmap, indicesBuffer, minIndicesBytes);
+        return new DictionaryBuffer(name, arena, length, offset, validityBitmap, indicesBuffer, dictionary);
+    }
+
+    /**
      * Returns the 32-bit dictionary index (code) at the given logical row index.
      */
     public int getIndex(long index) {

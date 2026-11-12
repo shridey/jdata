@@ -114,6 +114,13 @@ public final class UTF8BufferBuilder extends AbstractBufferBuilder {
         Objects.checkFromIndexSize(srcIndex, length, source.length());
         if (length == 0) return this;
 
+        if (source instanceof ChunkedBuffer cb) {
+            for (DataBuffer chunk : cb.slice(srcIndex, length).chunks()) {
+                appendImportedBlock(chunk, 0, chunk.length());
+            }
+            return this;
+        }
+
         long offsetByteSize = ValueLayout.JAVA_INT.byteSize();
         long srcPhysical = srcIndex + source.offset();
         MemorySegment srcOffsets = source.buffer(1);
@@ -162,6 +169,10 @@ public final class UTF8BufferBuilder extends AbstractBufferBuilder {
 
     MemorySegment dataSegment() {
         return dataBuffer;
+    }
+
+    int currentDataBytes() {
+        return currentDataOffset;
     }
 
     void appendRawBytes(MemorySegment srcData, long srcStartByte, int byteLength) {

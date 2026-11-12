@@ -126,6 +126,13 @@ public final class DictionaryBufferBuilder extends AbstractBufferBuilder {
         Objects.checkFromIndexSize(srcIndex, length, source.length());
         if (length == 0) return this;
 
+        if (source instanceof ChunkedBuffer cb) {
+            for (DataBuffer chunk : cb.slice(srcIndex, length).chunks()) {
+                appendImportedBlock(chunk, 0, chunk.length());
+            }
+            return this;
+        }
+
         ensureLogicalCapacity(length);
 
         MemorySegment srcOffsets = source.buffer(1);
@@ -172,6 +179,13 @@ public final class DictionaryBufferBuilder extends AbstractBufferBuilder {
         }
         Objects.checkFromIndexSize(srcIndex, length, source.length());
         if (length == 0) return this;
+
+        if (source instanceof ChunkedBuffer cb) {
+            for (DataBuffer chunk : cb.slice(srcIndex, length).chunks()) {
+                appendImportedBlock(chunk, 0, chunk.length());
+            }
+            return this;
+        }
 
         DataBuffer srcDict = switch (source) {
             case DictionaryBuffer db -> db.dictionary();

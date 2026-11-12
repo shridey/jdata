@@ -8,16 +8,9 @@ import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
-/**
- * A sealed, read-only Arrow column for variable-length UTF-8 strings.
- * Relies on 3 separate memory buffers (Validity, Offsets, Data) to resolve boundaries.
- */
 public final class UTF8Buffer extends AbstractDataBuffer {
 
-    // Tracks where each string starts and ends (32-bit integers)
     private final MemorySegment offsetsBuffer;
-
-    // The tightly packed, concatenated text bytes
     private final MemorySegment dataBuffer;
 
     UTF8Buffer(String name, Arena arena, long length, long offset, MemorySegment validityBitmap,
@@ -27,17 +20,12 @@ public final class UTF8Buffer extends AbstractDataBuffer {
         this.dataBuffer = dataBuffer;
     }
 
-    /**
-     * Allocates a string buffer instantly from an existing Java array.
-     */
     public static UTF8Buffer allocate(Arena arena, String name, String[] values) {
         Objects.requireNonNull(arena, "Arena cannot be null");
         Objects.requireNonNull(name, "Column name cannot be null");
         Objects.requireNonNull(values, "Values array cannot be null");
 
         long length = values.length;
-
-        // 1. Pass 1: Calculate precise total text bytes
         long bitmapBytes = (length + 7L) >>> 3;
         long offsetsBytes = Math.multiplyExact(length + 1L, ValueLayout.JAVA_INT.byteSize());
         long totalDataBytes = computeTotalUtf8Bytes(values);
@@ -46,16 +34,13 @@ public final class UTF8Buffer extends AbstractDataBuffer {
             throw new IllegalArgumentException("Total UTF-8 data exceeds Integer.MAX_VALUE bytes; use LARGE_UTF8.");
         }
 
-        // 2. Allocate aligned memory blocks
         MemorySegment validityBitmap = ArrowMemoryAllocator.allocateAligned(arena, bitmapBytes);
         MemorySegment offsetsBuffer = ArrowMemoryAllocator.allocateAligned(arena, offsetsBytes);
-        long safeDataBytes = totalDataBytes == 0 ? 64L : totalDataBytes;
-        MemorySegment dataBuffer = ArrowMemoryAllocator.allocateAligned(arena, safeDataBytes);
+        MemorySegment dataBuffer = ArrowMemoryAllocator.allocateAligned(arena, totalDataBytes);
 
         UTF8Buffer buffer = new UTF8Buffer(name, arena, length, 0, validityBitmap, offsetsBuffer, dataBuffer);
         buffer.setAllValid();
 
-        // 3. Pass 2: Write offsets and UTF-8 bytes directly off-heap without heap byte[] allocations
         int currentOffset = 0;
         for (int i = 0; i < values.length; i++) {
             buffer.offsetsBuffer.set(ValueLayout.JAVA_INT, (long) i * ValueLayout.JAVA_INT.byteSize(), currentOffset);
@@ -70,6 +55,27 @@ public final class UTF8Buffer extends AbstractDataBuffer {
 
         buffer.offsetsBuffer.set(ValueLayout.JAVA_INT, length * ValueLayout.JAVA_INT.byteSize(), currentOffset);
         return buffer;
+    }
+
+    /**
+     * Zero-copy wraps pre-allocated or memory-mapped validity, 32-bit offsets, and UTF-8 byte segments.
+     */
+    public static UTF8Buffer wrap(String name, Arena arena, long length, long offset,
+                                  MemorySegment validityBitmap, MemorySegment offsetsBuffer, MemorySegment dataBuffer) {
+        Objects.requireNonNull(offsetsBuffer, "offsetsBuffer cannot be null");
+        long totalElements = Math.addExact(length, offset);
+        long minOffsetsBytes = Math.multiplyExact(totalElements + 1L, ValueLayout.JAVA_INT.byteSize());
+        if (offsetsBuffer.byteSize() < minOffsetsBytes) {
+            throw new IllegalArgumentException(
+                    "offsetsBuffer byteSize (" + offsetsBuffer.byteSize() + ") is smaller than required (" + minOffsetsBytes + ")"
+            );
+        }
+        int lastOffset = offsetsBuffer.get(ValueLayout.JAVA_INT, totalElements * ValueLayout.JAVA_INT.byteSize());
+        if (lastOffset < 0) {
+            throw new IllegalArgumentException("Invalid negative terminal UTF-8 byte offset: " + lastOffset);
+        }
+        ArrowMemoryAllocator.validateWrapBounds(name, arena, length, offset, validityBitmap, dataBuffer, lastOffset);
+        return new UTF8Buffer(name, arena, length, offset, validityBitmap, offsetsBuffer, dataBuffer);
     }
 
     static long computeTotalUtf8Bytes(String[] values) {
@@ -96,7 +102,6 @@ public final class UTF8Buffer extends AbstractDataBuffer {
                     byteLen += 4;
                     j++;
                 } else {
-                    // Unpaired surrogate is replaced with '?' (1 byte)
                     byteLen++;
                 }
             } else {
@@ -125,7 +130,6 @@ public final class UTF8Buffer extends AbstractDataBuffer {
                     target.set(ValueLayout.JAVA_BYTE, cursor++, (byte) (0x80 | ((codePoint >>> 6) & 0x3F)));
                     target.set(ValueLayout.JAVA_BYTE, cursor++, (byte) (0x80 | (codePoint & 0x3F)));
                 } else {
-                    // Replace unpaired surrogate with '?' (0x3F)
                     target.set(ValueLayout.JAVA_BYTE, cursor++, (byte) 0x3F);
                 }
             } else {

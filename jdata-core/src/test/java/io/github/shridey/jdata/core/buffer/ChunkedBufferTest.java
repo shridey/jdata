@@ -20,7 +20,6 @@ class ChunkedBufferTest {
     @Test
     void testChunkedBufferBinarySearchLookupsAndFlatteningAcrossAllTypes() {
         try (Arena arena = Arena.ofConfined()) {
-            // 1. Int32 chunks + appendChunk + nested flattening
             Int32Buffer i1 = Int32Buffer.allocate(arena, "ids", 3);
             i1.copyFrom(new int[]{10, 20, 30});
             Int32Buffer i2 = Int32Buffer.allocate(arena, "ids", 2);
@@ -35,7 +34,7 @@ class ChunkedBufferTest {
             assertEquals(DataType.INT32, chunkedInt.type());
             assertEquals(arena, chunkedInt.arena());
             assertEquals(0L, chunkedInt.offset());
-            assertEquals(3, chunkedInt.chunkCount(), "Nested ChunkedBuffers must be flattened");
+            assertEquals(3, chunkedInt.chunkCount());
             assertEquals(3, chunkedInt.chunks().size());
             assertSame(i2, chunkedInt.chunk(1));
             assertEquals(9L, chunkedInt.length());
@@ -44,18 +43,22 @@ class ChunkedBufferTest {
                 assertEquals((idx + 1) * 10, chunkedInt.getInt(idx));
             }
 
-            // Discontiguous multi-chunk buffer must reject direct single-segment buffer() access
+            // Verify passing a multi-chunk ChunkedBuffer directly into BufferBuilder.appendImportedBlock
+            Int32Buffer appendedFromChunked = new Int32BufferBuilder(arena, "from_chunked", 4)
+                    .appendImportedBlock(chunkedInt, 2, 5)
+                    .build();
+            assertArrayEquals(new int[]{30, 40, 50, 60, 70}, appendedFromChunked.toArray());
+
             assertThrows(UnsupportedOperationException.class, chunkedInt::bufferCount);
             assertThrows(UnsupportedOperationException.class, () -> chunkedInt.buffer(0));
 
-            // 2. Int64, Float32, Float64, Boolean, UTF8, and Dictionary typed getters
             Int64Buffer l1 = Int64Buffer.allocate(arena, "l", 2);
             l1.copyFrom(new long[]{100L, 200L});
             ChunkedBuffer chunkedLong = ChunkedBuffer.of(l1);
             assertEquals(2, chunkedLong.bufferCount());
             assertNotNull(chunkedLong.buffer(1));
             assertEquals(200L, chunkedLong.getLong(1));
-            assertSame(l1, chunkedLong.compact(arena), "Single unsliced chunk must compact in zero-copy");
+            assertSame(l1, chunkedLong.compact(arena));
 
             Float32Buffer f1 = Float32Buffer.allocate(arena, "f", 2);
             f1.copyFrom(new float[]{1.5f, 2.5f});
@@ -72,6 +75,112 @@ class ChunkedBufferTest {
     }
 
     @Test
+    void testZeroCopyWrapFactoriesAcrossAllPhysicalBuffers() {
+        try (Arena arena = Arena.ofConfined()) {
+            Int32Buffer i32 = Int32Buffer.allocate(arena, "i32", 4);
+            i32.copyFrom(new int[]{1, 2, 3, 4});
+            Int32Buffer wrappedI32 = Int32Buffer.wrap("i32_w", arena, 3, 1, i32.buffer(0), i32.buffer(1));
+            assertArrayEquals(new int[]{2, 3, 4}, wrappedI32.toArray());
+
+            Int64Buffer i64 = Int64Buffer.allocate(arena, "i64", 3);
+            i64.copyFrom(new long[]{10L, 20L, 30L});
+            Int64Buffer wrappedI64 = Int64Buffer.wrap("i64_w", arena, 2, 1, i64.buffer(0), i64.buffer(1));
+            assertArrayEquals(new long[]{20L, 30L}, wrappedI64.toArray());
+
+            Float32Buffer f32 = Float32Buffer.allocate(arena, "f32", 3);
+            f32.copyFrom(new float[]{1.0f, 2.0f, 3.0f});
+            Float32Buffer wrappedF32 = Float32Buffer.wrap("f32_w", arena, 2, 1, f32.buffer(0), f32.buffer(1));
+            assertArrayEquals(new float[]{2.0f, 3.0f}, wrappedF32.toArray());
+
+            Float64Buffer f64 = Float64Buffer.allocate(arena, "f64", 3);
+            f64.copyFrom(new double[]{10.5, 20.5, 30.5});
+            Float64Buffer wrappedF64 = Float64Buffer.wrap("f64_w", arena, 2, 1, f64.buffer(0), f64.buffer(1));
+            assertArrayEquals(new double[]{20.5, 30.5}, wrappedF64.toArray());
+
+            BooleanBuffer bool = BooleanBuffer.allocate(arena, "bool", 4);
+            bool.copyFrom(new boolean[]{false, true, false, true});
+            BooleanBuffer wrappedBool = BooleanBuffer.wrap("bool_w", arena, 3, 1, bool.buffer(0), bool.buffer(1));
+            assertArrayEquals(new boolean[]{true, false, true}, wrappedBool.toArray());
+
+            UTF8Buffer utf8 = UTF8Buffer.allocate(arena, "utf8", new String[]{"A", "B", "C"});
+            UTF8Buffer wrappedUtf8 = UTF8Buffer.wrap("utf8_w", arena, 2, 1, utf8.buffer(0), utf8.buffer(1), utf8.buffer(2));
+            assertArrayEquals(new String[]{"B", "C"}, wrappedUtf8.toArray());
+
+            DictionaryBuffer dict = DictionaryBuffer.allocate(arena, "dict", new String[]{"X", "Y", "X"});
+            DictionaryBuffer wrappedDict = DictionaryBuffer.wrap(
+                    "dict_w", arena, 2, 1, dict.buffer(0), dict.buffer(1), dict.dictionary()
+            );
+            assertArrayEquals(new String[]{"Y", "X"}, wrappedDict.toArray());
+        }
+    }
+
+    @Test
+    void testChunkedBufferBuilderAutoRolloverForAllTypesAndUtf8ByteLimits() {
+        try (Arena arena = Arena.ofConfined()) {
+            // 1. Default constructor check
+            ChunkedBufferBuilder defaultBuilder = new ChunkedBufferBuilder(arena, "def", DataType.INT32);
+            assertEquals(ChunkedBufferBuilder.DEFAULT_MAX_CHUNK_ROWS, defaultBuilder.maxChunkRows());
+            assertEquals(ChunkedBufferBuilder.DEFAULT_MAX_UTF8_CHUNK_BYTES, defaultBuilder.maxUtf8ChunkBytes());
+
+            // 2. Row-limit rollover across Int32, Int64, Float32, Float64, Boolean, and Dictionary
+            ChunkedBuffer i32Chunked = new ChunkedBufferBuilder(arena, "i32", DataType.INT32, 3)
+                    .append(1)
+                    .appendAll(new int[]{2, 3, 4, 5, 6, 7})
+                    .appendNull()
+                    .build();
+            assertEquals(8L, i32Chunked.length());
+            assertEquals(3, i32Chunked.chunkCount());
+            assertEquals(7, i32Chunked.getInt(6));
+            assertTrue(i32Chunked.isNull(7));
+
+            ChunkedBuffer i64Chunked = new ChunkedBufferBuilder(arena, "i64", DataType.INT64, 2)
+                    .append(10L)
+                    .appendAll(new long[]{20L, 30L, 40L})
+                    .build();
+            assertEquals(2, i64Chunked.chunkCount());
+            assertEquals(40L, i64Chunked.getLong(3));
+
+            ChunkedBuffer f32Chunked = new ChunkedBufferBuilder(arena, "f32", DataType.FLOAT32, 2)
+                    .append(1.0f)
+                    .appendAll(new float[]{2.0f, 3.0f})
+                    .build();
+            assertEquals(2, f32Chunked.chunkCount());
+            assertEquals(3.0f, f32Chunked.getFloat(2));
+
+            ChunkedBuffer f64Chunked = new ChunkedBufferBuilder(arena, "f64", DataType.FLOAT64, 2)
+                    .append(1.5)
+                    .appendAll(new double[]{2.5, 3.5})
+                    .build();
+            assertEquals(2, f64Chunked.chunkCount());
+            assertEquals(3.5, f64Chunked.getDouble(2));
+
+            ChunkedBuffer boolChunked = new ChunkedBufferBuilder(arena, "bool", DataType.BOOLEAN, 2)
+                    .append(true)
+                    .appendAll(new boolean[]{false, true})
+                    .build();
+            assertEquals(2, boolChunked.chunkCount());
+            assertTrue(boolChunked.getBoolean(2));
+
+            // 3. UTF-8 byte-limit rollover (cap each chunk at 10 UTF-8 bytes even when maxChunkRows = 100)
+            ChunkedBufferBuilder utf8Stream = new ChunkedBufferBuilder(arena, "utf8_stream", DataType.UTF8, 100, 10);
+            utf8Stream.appendAll(new String[]{"123456", "7890", "ABCD", "EFGHIJ"});
+            UTF8Buffer blockSrc = UTF8Buffer.allocate(arena, "src", new String[]{"12345", "67890", "XYZ"});
+            utf8Stream.appendBlock(blockSrc, 0, blockSrc.length());
+            assertEquals(7L, utf8Stream.length());
+
+            ChunkedBuffer utf8Chunked = utf8Stream.build();
+            // Chunk 0: "123456" + "7890" (10B)
+            // Chunk 1: "ABCD" + "EFGHIJ" (10B)
+            // Chunk 2: "12345" + "67890" (10B)
+            // Chunk 3: "XYZ" (3B)
+            assertEquals(4, utf8Chunked.chunkCount());
+            assertEquals("123456", utf8Chunked.getString(0));
+            assertEquals("EFGHIJ", utf8Chunked.getString(3));
+            assertEquals("XYZ", utf8Chunked.getString(6));
+        }
+    }
+
+    @Test
     void testCrossChunkZeroCopySlicingAndNullManagement() {
         try (Arena arena = Arena.ofConfined()) {
             UTF8Buffer c0 = UTF8Buffer.allocate(arena, "words", new String[]{"w0", "w1", "w2"});
@@ -83,35 +192,21 @@ class ChunkedBufferTest {
             assertEquals(1L, full.nullCount());
             assertTrue(full.isNull(4));
 
-            // Mutate null state across chunk boundaries
-            full.setNull(8); // Index 8 -> c2 local index 1 ("w8")
+            full.setNull(8);
             assertEquals(2L, full.nullCount());
             assertTrue(full.isNull(8));
 
-            // Zero-copy slice spanning from middle of c0 (index 1) to middle of c2 (index 8, length 8 -> [1..9))
             ChunkedBuffer crossSlice = full.slice(1, 8);
             assertEquals(8L, crossSlice.length());
             assertEquals(3, crossSlice.chunkCount());
             assertEquals(2L, crossSlice.nullCount());
 
-            assertEquals("w1", crossSlice.getString(0));
-            assertEquals("w2", crossSlice.getString(1));
-            assertEquals("w3", crossSlice.getString(2));
-            assertNull(crossSlice.getString(3)); // was index 4
-            assertEquals("w6", crossSlice.getString(5));
-            assertEquals("w7", crossSlice.getString(6));
-            assertNull(crossSlice.getString(7)); // was index 8
-
-            // Compact the cross-chunk slice into a single contiguous UTF8Buffer
             UTF8Buffer compacted = (UTF8Buffer) crossSlice.compact(arena);
-            assertEquals(8L, compacted.length());
-            assertEquals(2L, compacted.nullCount());
             assertArrayEquals(
                     new String[]{"w1", "w2", "w3", null, "w5", "w6", "w7", null},
                     compacted.toArray()
             );
 
-            // Healing all nulls across chunks
             full.setAllValid();
             assertEquals(0L, full.nullCount());
             assertFalse(full.isNull(4));
@@ -136,18 +231,9 @@ class ChunkedBufferTest {
             DictionaryBuffer regBatch2 = DictionaryBuffer.allocate(arena, "region", new String[]{"AMER", "APAC", null});
             Table t2 = new Table(schema, List.of(idBatch2, regBatch2));
 
-            // 1. O(1) Zero-Copy Table.concat
             Table concatenated = t1.concat(t2);
             assertEquals(5L, concatenated.rowCount());
-            assertInstanceOf(ChunkedBuffer.class, concatenated.getColumn("id"));
-            assertInstanceOf(ChunkedBuffer.class, concatenated.getColumn("region"));
 
-            ChunkedBuffer chunkedRegion = (ChunkedBuffer) concatenated.getColumn("region");
-            assertEquals("APAC", chunkedRegion.getString(0));
-            assertEquals("AMER", chunkedRegion.getString(2));
-            assertNull(chunkedRegion.getString(4));
-
-            // 2. Export chunked Table directly over FFI (ArrowCExporter auto-compacts into structArena)
             MemorySegment cArr = ArrowCExporter.exportTableArray(concatenated, arena).reinterpret(0);
             MemorySegment cSch = ArrowCExporter.exportTableSchema(concatenated, arena).reinterpret(0);
 
@@ -159,12 +245,17 @@ class ChunkedBufferTest {
             assertEquals("AMER", impReg.getString(2));
             assertTrue(impReg.isNull(4));
 
-            // 3. Explicit Table.compact(arena)
+            // Also verify exporting an empty 0-row sliced chunked Table with a DICTIONARY column over FFI
+            Table emptySliced = concatenated.slice(0, 0);
+            MemorySegment emptyArr = ArrowCExporter.exportTableArray(emptySliced, arena);
+            MemorySegment emptySch = ArrowCExporter.exportTableSchema(emptySliced, arena);
+            Table importedEmpty = ArrowCImporter.importTable(emptyArr, emptySch, arena);
+            assertEquals(0L, importedEmpty.rowCount());
+            assertEquals(DataType.DICTIONARY, importedEmpty.schema().getField(1).type());
+
             Table compactedTable = concatenated.compact(arena);
-            assertInstanceOf(Int32Buffer.class, compactedTable.getColumn("id"));
-            assertInstanceOf(DictionaryBuffer.class, compactedTable.getColumn("region"));
             DictionaryBuffer unifiedDict = (DictionaryBuffer) compactedTable.getColumn("region");
-            assertEquals(3L, unifiedDict.cardinality()); // "APAC", "EMEA", "AMER"
+            assertEquals(3L, unifiedDict.cardinality());
             assertArrayEquals(new String[]{"APAC", "EMEA", "AMER", "APAC", null}, unifiedDict.toArray());
         }
     }

@@ -145,8 +145,8 @@ public final class ArrowCExporter {
     }
 
     private static MemorySegment exportSchema(DataBuffer column, boolean nullable, Arena structArena) {
-        if (column instanceof io.github.shridey.jdata.core.buffer.ChunkedBuffer cb && cb.chunkCount() > 0) {
-            column = cb.chunk(0);
+        if (column instanceof io.github.shridey.jdata.core.buffer.ChunkedBuffer cb) {
+            column = cb.chunkCount() > 0 ? cb.chunk(0) : cb.compact(structArena);
         }
 
         MemorySegment struct = structArena.allocate(ArrowCStructs.ARROW_SCHEMA_LAYOUT);

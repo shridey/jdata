@@ -7,28 +7,22 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Objects;
 
-/**
- * A sealed, read-only Arrow column for 64-bit floating-point numbers (doubles).
- * Utilizes hardware-aligned contiguous memory to enable SIMD vectorization.
- */
 public final class Float64Buffer extends AbstractDataBuffer {
 
     private final MemorySegment dataBuffer;
 
-    Float64Buffer(String name, Arena arena, long length, long offset,
-                  MemorySegment validityBitmap, MemorySegment dataBuffer) {
+    Float64Buffer(String name, Arena arena, long length, long offset, MemorySegment validityBitmap, MemorySegment dataBuffer) {
         super(name, arena, length, offset, validityBitmap);
         this.dataBuffer = dataBuffer;
     }
 
-    /**
-     * Allocates a fixed-size buffer instantly.
-     * Used when the exact number of rows is known prior to allocation.
-     */
     public static Float64Buffer allocate(Arena arena, String name, long length) {
+        Objects.requireNonNull(arena, "Arena cannot be null");
+        Objects.requireNonNull(name, "Column name cannot be null");
         if (length < 0) {
             throw new IllegalArgumentException("Buffer length cannot be negative: " + length);
         }
+
         long bitmapBytes = (length + 7L) >>> 3;
         long dataBytes = Math.multiplyExact(length, ValueLayout.JAVA_DOUBLE.byteSize());
 
@@ -37,84 +31,99 @@ public final class Float64Buffer extends AbstractDataBuffer {
 
         Float64Buffer buffer = new Float64Buffer(name, arena, length, 0, validityBitmap, dataBuffer);
         buffer.setAllValid();
-
         return buffer;
     }
 
-    public void set(long index, double value) {
-        checkBounds(index);
-
-        long physicalIndex = index + this.offset;
-        long byteOffset = physicalIndex * ValueLayout.JAVA_DOUBLE.byteSize();
-        dataBuffer.set(ValueLayout.JAVA_DOUBLE, byteOffset, value);
-
-        markValid(index);
+    /**
+     * Zero-copy wraps pre-allocated or memory-mapped validity and 64-bit double data segments.
+     */
+    public static Float64Buffer wrap(String name, Arena arena, long length, long offset,
+                                     MemorySegment validityBitmap, MemorySegment dataBuffer) {
+        long totalElements = Math.addExact(length, offset);
+        long minDataBytes = Math.multiplyExact(totalElements, ValueLayout.JAVA_DOUBLE.byteSize());
+        ArrowMemoryAllocator.validateWrapBounds(name, arena, length, offset, validityBitmap, dataBuffer, minDataBytes);
+        return new Float64Buffer(name, arena, length, offset, validityBitmap, dataBuffer);
     }
 
     public double get(long index) {
         checkBounds(index);
         long physicalIndex = index + this.offset;
-        long byteOffset = physicalIndex * ValueLayout.JAVA_DOUBLE.byteSize();
-        return dataBuffer.get(ValueLayout.JAVA_DOUBLE, byteOffset);
+        return dataBuffer.get(ValueLayout.JAVA_DOUBLE, physicalIndex * ValueLayout.JAVA_DOUBLE.byteSize());
+    }
+
+    public void set(long index, double value) {
+        checkBounds(index);
+        long physicalIndex = index + this.offset;
+        dataBuffer.set(ValueLayout.JAVA_DOUBLE, physicalIndex * ValueLayout.JAVA_DOUBLE.byteSize(), value);
+        setValid(index);
+    }
+
+    public void copyFrom(double[] source) {
+        Objects.requireNonNull(source, "Source array cannot be null");
+        if (source.length > this.length) {
+            throw new IndexOutOfBoundsException("Source array is larger than the buffer capacity.");
+        }
+
+        long destByteOffset = this.offset * ValueLayout.JAVA_DOUBLE.byteSize();
+        long copyBytes = (long) source.length * ValueLayout.JAVA_DOUBLE.byteSize();
+
+        MemorySegment heapSegment = MemorySegment.ofArray(source);
+        MemorySegment.copy(heapSegment, 0, this.dataBuffer, destByteOffset, copyBytes);
+
+        if (source.length == this.length) {
+            setAllValid();
+        } else {
+            for (int i = 0; i < source.length; i++) {
+                setValid(i);
+            }
+        }
     }
 
     public void copyBlock(Float64Buffer source, long srcIndex, long destIndex, long length) {
         Objects.requireNonNull(source, "Source buffer cannot be null");
         Objects.checkFromIndexSize(srcIndex, length, source.length);
         Objects.checkFromIndexSize(destIndex, length, this.length);
-
         if (length == 0) return;
 
         long byteSize = ValueLayout.JAVA_DOUBLE.byteSize();
-        long srcPhysical = srcIndex + source.offset;
-        long destPhysical = destIndex + this.offset;
-
-        long srcByteOffset = srcPhysical * byteSize;
-        long destByteOffset = destPhysical * byteSize;
+        long srcByteOffset = (srcIndex + source.offset) * byteSize;
+        long destByteOffset = (destIndex + this.offset) * byteSize;
         long copyBytes = length * byteSize;
 
         MemorySegment.copy(source.dataBuffer, srcByteOffset, this.dataBuffer, destByteOffset, copyBytes);
 
-        if (source.nullCount() == 0 && destIndex == 0 && length == this.length) {
-            setAllValid();
+        if (source.nullCount() == 0) {
+            if (destIndex == 0 && length == this.length) {
+                this.setAllValid();
+            } else {
+                for (long i = 0; i < length; i++) {
+                    this.setValid(destIndex + i);
+                }
+            }
         } else {
             for (long i = 0; i < length; i++) {
                 if (source.isNull(srcIndex + i)) {
                     this.setNull(destIndex + i);
                 } else {
-                    this.markValid(destIndex + i);
+                    this.setValid(destIndex + i);
                 }
             }
         }
     }
 
-    /**
-     * Ingestion: Dumps a Java double[] array into this buffer instantly.
-     */
-    public void copyFrom(double[] source) {
-        Objects.requireNonNull(source, "Source array cannot be null");
-        if (source.length != this.length) {
-            throw new IllegalArgumentException("Array length must exactly match buffer length.");
-        }
-
-        long byteSize = ValueLayout.JAVA_DOUBLE.byteSize();
-        MemorySegment heapSegment = MemorySegment.ofArray(source);
-        MemorySegment.copy(heapSegment, 0, this.dataBuffer, this.offset * byteSize, this.length * byteSize);
-        setAllValid();
-    }
-
-    /**
-     * Exfiltration: Dumps this off-heap buffer back into a standard Java double[] array.
-     */
     public double[] toArray() {
         if (this.length > Integer.MAX_VALUE) {
             throw new IllegalStateException("Buffer length is too large to fit in a Java array.");
         }
 
-        double[] target = new double[(int) this.length];
-        long byteSize = ValueLayout.JAVA_DOUBLE.byteSize();
+        int len = (int) this.length;
+        double[] target = new double[len];
+
+        long srcByteOffset = this.offset * ValueLayout.JAVA_DOUBLE.byteSize();
+        long copyBytes = this.length * ValueLayout.JAVA_DOUBLE.byteSize();
+
         MemorySegment heapSegment = MemorySegment.ofArray(target);
-        MemorySegment.copy(this.dataBuffer, this.offset * byteSize, heapSegment, 0, this.length * byteSize);
+        MemorySegment.copy(this.dataBuffer, srcByteOffset, heapSegment, 0, copyBytes);
 
         return target;
     }
@@ -129,9 +138,7 @@ public final class Float64Buffer extends AbstractDataBuffer {
     public Float64Buffer slice(long sliceOffset, long sliceLength) {
         Objects.checkFromIndexSize(sliceOffset, sliceLength, this.length);
         long absoluteOffset = this.offset + sliceOffset;
-
-        return new Float64Buffer(this.name, this.arena, sliceLength, absoluteOffset,
-                this.validityBitmap, this.dataBuffer);
+        return new Float64Buffer(this.name, this.arena, sliceLength, absoluteOffset, this.validityBitmap, this.dataBuffer);
     }
 
     @Override public DataType type() { return DataType.FLOAT64; }
@@ -142,7 +149,7 @@ public final class Float64Buffer extends AbstractDataBuffer {
         return switch (index) {
             case 0 -> super.buffer(0);
             case 1 -> dataBuffer;
-            default -> throw new IndexOutOfBoundsException("Float64Buffer has exactly 2 buffers.");
+            default -> throw new IndexOutOfBoundsException("Float64Buffer only has 2 buffers (0 and 1).");
         };
     }
 }
