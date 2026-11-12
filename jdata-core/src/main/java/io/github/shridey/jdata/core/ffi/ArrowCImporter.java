@@ -30,12 +30,15 @@ public final class ArrowCImporter {
         Objects.requireNonNull(schemaPtr, "schemaPtr cannot be null");
         Objects.requireNonNull(arena, "arena cannot be null");
 
-        MemorySegment array = arrayPtr.reinterpret(
+        MemorySegment rawArray = arrayPtr.reinterpret(ArrowCStructs.ARROW_ARRAY_LAYOUT.byteSize());
+        MemorySegment schema = schemaPtr.reinterpret(ArrowCStructs.ARROW_SCHEMA_LAYOUT.byteSize());
+        ensureNotReleased(rawArray, schema);
+
+        MemorySegment array = rawArray.reinterpret(
                 ArrowCStructs.ARROW_ARRAY_LAYOUT.byteSize(),
                 arena,
                 ArrowCImporter::releaseArrayIfPresent
         );
-        MemorySegment schema = schemaPtr.reinterpret(ArrowCStructs.ARROW_SCHEMA_LAYOUT.byteSize());
 
         try {
             MemorySegment formatPtr = schema.get(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_FORMAT);
@@ -51,6 +54,9 @@ public final class ArrowCImporter {
             if (nChildrenSchema != nChildrenArray) {
                 throw new IllegalStateException("Schema and Array children count mismatch");
             }
+
+            long parentLength = array.get(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_LENGTH);
+            long parentOffset = array.get(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_OFFSET);
 
             List<Field> fields = new ArrayList<>((int) nChildrenSchema);
             List<DataBuffer> columns = new ArrayList<>((int) nChildrenSchema);
@@ -70,6 +76,9 @@ public final class ArrowCImporter {
                     boolean nullable = (flags & 2L) != 0;
 
                     ImportedDataBuffer buffer = importBuffer(childArrayPtr, childSchemaPtr, arena);
+                    if (parentOffset > 0 || buffer.length() != parentLength) {
+                        buffer = buffer.slice(parentOffset, parentLength);
+                    }
                     columns.add(buffer);
                     fields.add(new Field(buffer.name(), buffer.type(), nullable));
                 }
@@ -86,12 +95,15 @@ public final class ArrowCImporter {
         Objects.requireNonNull(schemaPtr, "schemaPtr cannot be null");
         Objects.requireNonNull(arena, "arena cannot be null");
 
-        MemorySegment array = arrayPtr.reinterpret(
+        MemorySegment rawArray = arrayPtr.reinterpret(ArrowCStructs.ARROW_ARRAY_LAYOUT.byteSize());
+        MemorySegment schema = schemaPtr.reinterpret(ArrowCStructs.ARROW_SCHEMA_LAYOUT.byteSize());
+        ensureNotReleased(rawArray, schema);
+
+        MemorySegment array = rawArray.reinterpret(
                 ArrowCStructs.ARROW_ARRAY_LAYOUT.byteSize(),
                 arena,
                 ArrowCImporter::releaseArrayIfPresent
         );
-        MemorySegment schema = schemaPtr.reinterpret(ArrowCStructs.ARROW_SCHEMA_LAYOUT.byteSize());
 
         try {
             MemorySegment formatPtr = schema.get(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_FORMAT);
@@ -158,6 +170,15 @@ public final class ArrowCImporter {
             return new ImportedDataBuffer(name, arena, type, length, offset, nullCount, resolvedBuffers);
         } finally {
             releaseSchemaIfPresent(schema);
+        }
+    }
+
+    private static void ensureNotReleased(MemorySegment array, MemorySegment schema) {
+        if (array.get(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_RELEASE).equals(MemorySegment.NULL)) {
+            throw new IllegalStateException("Cannot import an already released ArrowArray struct.");
+        }
+        if (schema.get(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_RELEASE).equals(MemorySegment.NULL)) {
+            throw new IllegalStateException("Cannot import an already released ArrowSchema struct.");
         }
     }
 

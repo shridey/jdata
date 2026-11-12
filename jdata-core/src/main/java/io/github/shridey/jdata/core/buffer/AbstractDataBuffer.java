@@ -148,35 +148,31 @@ public abstract sealed class AbstractDataBuffer implements DataBuffer
             return;
         }
 
-        if (this.offset == 0 && ((this.length + 7L) >>> 3) == validityBitmap.byteSize()) {
-            validityBitmap.fill((byte) 0xFF);
-        } else {
-            long startBit = this.offset;
-            long endBit = this.offset + this.length;
-            long startByte = startBit >>> 3;
-            long endByte = endBit >>> 3;
-            int startBitOffset = (int) (startBit & 7L);
-            int endBitOffset = (int) (endBit & 7L);
+        long startBit = this.offset;
+        long endBit = this.offset + this.length;
+        long startByte = startBit >>> 3;
+        long endByte = endBit >>> 3;
+        int startBitOffset = (int) (startBit & 7L);
+        int endBitOffset = (int) (endBit & 7L);
 
-            if (startByte == endByte) {
-                int mask = ((1 << (endBitOffset - startBitOffset)) - 1) << startBitOffset;
+        if (startByte == endByte) {
+            int mask = ((1 << (endBitOffset - startBitOffset)) - 1) << startBitOffset;
+            byte b = validityBitmap.get(ValueLayout.JAVA_BYTE, startByte);
+            validityBitmap.set(ValueLayout.JAVA_BYTE, startByte, (byte) (b | mask));
+        } else {
+            if (startBitOffset != 0) {
+                int mask = -(1 << startBitOffset);
                 byte b = validityBitmap.get(ValueLayout.JAVA_BYTE, startByte);
                 validityBitmap.set(ValueLayout.JAVA_BYTE, startByte, (byte) (b | mask));
-            } else {
-                if (startBitOffset != 0) {
-                    int mask = -(1 << startBitOffset);
-                    byte b = validityBitmap.get(ValueLayout.JAVA_BYTE, startByte);
-                    validityBitmap.set(ValueLayout.JAVA_BYTE, startByte, (byte) (b | mask));
-                    startByte++;
-                }
-                if (startByte < endByte) {
-                    validityBitmap.asSlice(startByte, endByte - startByte).fill((byte) 0xFF);
-                }
-                if (endBitOffset != 0) {
-                    int mask = (1 << endBitOffset) - 1;
-                    byte b = validityBitmap.get(ValueLayout.JAVA_BYTE, endByte);
-                    validityBitmap.set(ValueLayout.JAVA_BYTE, endByte, (byte) (b | mask));
-                }
+                startByte++;
+            }
+            if (startByte < endByte) {
+                validityBitmap.asSlice(startByte, endByte - startByte).fill((byte) 0xFF);
+            }
+            if (endBitOffset != 0) {
+                int mask = (1 << endBitOffset) - 1;
+                byte b = validityBitmap.get(ValueLayout.JAVA_BYTE, endByte);
+                validityBitmap.set(ValueLayout.JAVA_BYTE, endByte, (byte) (b | mask));
             }
         }
         this.nullCount = 0;

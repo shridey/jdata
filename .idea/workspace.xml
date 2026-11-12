@@ -6,11 +6,8 @@
   <component name="ChangeListManager">
     <list default="true" id="d039c1e1-1885-4ff8-9e45-ea12c0b8fbdb" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/AbstractDataBuffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/AbstractDataBuffer.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/ffi/ArrowCImporter.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/ffi/ArrowCImporter.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/ffi/ImportedDataBuffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/ffi/ImportedDataBuffer.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/layout/Table.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/layout/Table.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/ffi/FFIBridgeTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/ffi/FFIBridgeTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/layout/TableAndSchemaTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/layout/TableAndSchemaTest.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -37,67 +34,67 @@
 }</component>
   <component name="GithubPullRequestsUISettings">{
   &quot;selectedUrlAndAccountId&quot;: {
-    &quot;url&quot;: &quot;https://github.com/shridey/jdata-core.git&quot;,
+    &quot;url&quot;: &quot;https://github.com/shridey/jdata.git&quot;,
     &quot;accountId&quot;: &quot;4c2e50f6-d51e-40c3-8bfb-0b5891c2673c&quot;
   }
 }</component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.2783376126427306" />
-      <entry key="MS500" value="3.262187976119693" />
-      <entry key="S2" value="10.180536197164741" />
-      <entry key="S5" value="20.953002963577156" />
-      <entry key="S10" value="34.10662255696143" />
-      <entry key="S30" value="58.49853476858119" />
-      <entry key="S60" value="70.09180240225484" />
-      <entry key="M2" value="77.39694786142441" />
-      <entry key="M5" value="82.43010250931931" />
-      <entry key="M10" value="84.59042768755789" />
-      <entry key="M15" value="85.71837619672186" />
-      <entry key="M30" value="87.58897845688509" />
-      <entry key="H1" value="90.34307788510908" />
-      <entry key="H2" value="101.19082022387332" />
-      <entry key="H4" value="128.38303727022753" />
-      <entry key="D1" value="203.76741011904744" />
-      <entry key="W1" value="228.3521509877604" />
+      <entry key="MS100" value="1.934899913298949" />
+      <entry key="MS500" value="5.253722768982568" />
+      <entry key="S2" value="11.54298781836619" />
+      <entry key="S5" value="17.821335251833858" />
+      <entry key="S10" value="21.93743738724731" />
+      <entry key="S30" value="28.021121030591694" />
+      <entry key="S60" value="36.800289304385075" />
+      <entry key="M2" value="48.91455056787284" />
+      <entry key="M5" value="64.91579025185183" />
+      <entry key="M10" value="83.72395063921913" />
+      <entry key="M15" value="98.11443028768238" />
+      <entry key="M30" value="122.50720764290384" />
+      <entry key="H1" value="141.9870877494978" />
+      <entry key="H2" value="162.31282480714393" />
+      <entry key="H4" value="194.36711340830735" />
+      <entry key="D1" value="276.3450233330094" />
+      <entry key="W1" value="302.96333589457896" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
       <entry key="MS500" value="0.0" />
-      <entry key="S2" value="2.694E-320" />
-      <entry key="S5" value="2.752798109971206E-128" />
-      <entry key="S10" value="3.165723818355018E-64" />
-      <entry key="S30" value="1.698410764221419E-21" />
-      <entry key="S60" value="8.230764718600653E-11" />
-      <entry key="M2" value="1.8138319344485383E-5" />
-      <entry key="M5" value="0.029149967002164587" />
-      <entry key="M10" value="0.3414866840880925" />
-      <entry key="M15" value="0.777180367210011" />
-      <entry key="M30" value="1.8945828188444833" />
-      <entry key="H1" value="4.005766997094851" />
-      <entry key="H2" value="8.30534062681663" />
-      <entry key="H4" value="14.456049665650665" />
-      <entry key="D1" value="26.215699511845123" />
-      <entry key="W1" value="29.41809231857636" />
+      <entry key="S2" value="0.0" />
+      <entry key="S5" value="4.3468525442562995E-216" />
+      <entry key="S10" value="3.9780780261518975E-108" />
+      <entry key="S30" value="3.948597123096855E-36" />
+      <entry key="S60" value="3.968626544320536E-18" />
+      <entry key="M2" value="3.982878577194628E-9" />
+      <entry key="M5" value="0.0010029472146134187" />
+      <entry key="M10" value="0.06334229259268437" />
+      <entry key="M15" value="0.2527756043979692" />
+      <entry key="M30" value="1.0804887832246226" />
+      <entry key="H1" value="3.025095003218681" />
+      <entry key="H2" value="7.217455517297135" />
+      <entry key="H4" value="13.476060906506323" />
+      <entry key="D1" value="25.910771199710116" />
+      <entry key="W1" value="29.368964445938598" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="1.2588408628724128" />
-      <entry key="MS500" value="3.2497292995493483" />
-      <entry key="S2" value="10.170320731063386" />
-      <entry key="S5" value="20.944356645069643" />
-      <entry key="S10" value="34.09825793424359" />
-      <entry key="S30" value="58.491454364997885" />
-      <entry key="S60" value="70.08691051900232" />
-      <entry key="M2" value="77.39405142227668" />
-      <entry key="M5" value="82.45774607205132" />
-      <entry key="M10" value="84.930006495545" />
-      <entry key="M15" value="86.49312988791144" />
-      <entry key="M30" value="89.48080063592099" />
-      <entry key="H1" value="94.34616635812574" />
-      <entry key="H2" value="109.49354950114132" />
-      <entry key="H4" value="142.8368048930175" />
-      <entry key="D1" value="229.98236727694817" />
-      <entry key="W1" value="257.77012008942893" />
+      <entry key="MS100" value="1.895067063173119" />
+      <entry key="MS500" value="5.231028429179408" />
+      <entry key="S2" value="11.520115385928344" />
+      <entry key="S5" value="17.800038885253123" />
+      <entry key="S10" value="21.921960497383665" />
+      <entry key="S30" value="28.013534739428724" />
+      <entry key="S60" value="36.795254578041096" />
+      <entry key="M2" value="48.91126686417576" />
+      <entry key="M5" value="64.91510561688756" />
+      <entry key="M10" value="83.78604912037694" />
+      <entry key="M15" value="98.36580563391537" />
+      <entry key="M30" value="123.58580720748279" />
+      <entry key="H1" value="145.0100001436903" />
+      <entry key="H2" value="169.52793049470128" />
+      <entry key="H4" value="207.84100655247735" />
+      <entry key="D1" value="302.25505405484364" />
+      <entry key="W1" value="332.332176363327" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
