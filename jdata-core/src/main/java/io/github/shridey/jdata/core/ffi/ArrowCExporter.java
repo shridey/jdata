@@ -110,6 +110,10 @@ public final class ArrowCExporter {
     }
 
     public static MemorySegment exportArray(DataBuffer column, Arena structArena) {
+        if (column instanceof io.github.shridey.jdata.core.buffer.ChunkedBuffer cb) {
+            column = cb.compact(structArena);
+        }
+
         MemorySegment struct = structArena.allocate(ArrowCStructs.ARROW_ARRAY_LAYOUT);
         struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_LENGTH, column.length());
         struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_NULL_COUNT, column.nullCount());
@@ -141,10 +145,13 @@ public final class ArrowCExporter {
     }
 
     private static MemorySegment exportSchema(DataBuffer column, boolean nullable, Arena structArena) {
+        if (column instanceof io.github.shridey.jdata.core.buffer.ChunkedBuffer cb && cb.chunkCount() > 0) {
+            column = cb.chunk(0);
+        }
+
         MemorySegment struct = structArena.allocate(ArrowCStructs.ARROW_SCHEMA_LAYOUT);
 
         DataBuffer dictBuffer = extractDictionary(column);
-        // Per Arrow C Data spec: a dictionary-encoded schema's format is its index integer type ("i" for INT32)
         String formatString = dictBuffer != null
                 ? DataType.INT32.getFormat()
                 : column.type().getFormat();

@@ -2,6 +2,8 @@ package io.github.shridey.jdata.core;
 
 import io.github.shridey.jdata.core.buffer.AbstractBufferBuilder;
 import io.github.shridey.jdata.core.buffer.AbstractDataBuffer;
+import io.github.shridey.jdata.core.buffer.ChunkedBuffer;
+
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 
@@ -11,7 +13,7 @@ import java.lang.foreign.MemorySegment;
  * AbstractDataBuffer to implement this, we guarantee that no one can create a rogue
  * column that breaks the strict off-heap memory rules required by Apache Arrow.
  */
-public sealed interface DataBuffer permits AbstractDataBuffer {
+public sealed interface DataBuffer permits AbstractDataBuffer, ChunkedBuffer {
 
     /**
      * The logical name of the column (e.g., "user_id", "revenue").
