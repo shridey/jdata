@@ -2,8 +2,11 @@ package io.github.shridey.jdata.core.ffi;
 
 import io.github.shridey.jdata.core.DataBuffer;
 import io.github.shridey.jdata.core.DataType;
+import io.github.shridey.jdata.core.buffer.ChunkedBuffer;
 import io.github.shridey.jdata.core.buffer.DictionaryBuffer;
 import io.github.shridey.jdata.core.internal.ArrowCStructs;
+import io.github.shridey.jdata.core.layout.Field;
+import io.github.shridey.jdata.core.layout.Schema;
 import io.github.shridey.jdata.core.layout.Table;
 
 import java.lang.foreign.Arena;
@@ -14,19 +17,40 @@ import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class ArrowCExporter {
 
     private static final long ARROW_FLAG_NULLABLE = 2L;
+    private static final int ERRNO_EINVAL = 22;
+    private static final int ERRNO_EIO = 5;
 
     private static final MemorySegment ARRAY_RELEASE_STUB;
     private static final MemorySegment SCHEMA_RELEASE_STUB;
+    private static final MemorySegment STREAM_GET_SCHEMA_STUB;
+    private static final MemorySegment STREAM_GET_NEXT_STUB;
+    private static final MemorySegment STREAM_GET_LAST_ERROR_STUB;
+    private static final MemorySegment STREAM_RELEASE_STUB;
+
+    private static final AtomicLong STREAM_ID_GENERATOR = new AtomicLong(1L);
+    private static final Map<Long, ExportedStreamState> ACTIVE_STREAMS = new ConcurrentHashMap<>();
 
     static {
         try {
             MethodHandles.Lookup lookup = MethodHandles.lookup();
             Linker linker = Linker.nativeLinker();
-            FunctionDescriptor descriptor = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS);
+            FunctionDescriptor releaseDesc = FunctionDescriptor.ofVoid(ValueLayout.ADDRESS);
+            FunctionDescriptor streamIntDesc = FunctionDescriptor.of(
+                    ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS
+            );
+            FunctionDescriptor streamErrDesc = FunctionDescriptor.of(
+                    ValueLayout.ADDRESS, ValueLayout.ADDRESS
+            );
 
             MethodHandle arrayReleaseHandle = lookup.findStatic(
                     ArrowCExporter.class, "releaseArrayCallback",
@@ -36,9 +60,29 @@ public final class ArrowCExporter {
                     ArrowCExporter.class, "releaseSchemaCallback",
                     MethodType.methodType(void.class, MemorySegment.class)
             );
+            MethodHandle streamGetSchemaHandle = lookup.findStatic(
+                    ArrowCExporter.class, "streamGetSchemaCallback",
+                    MethodType.methodType(int.class, MemorySegment.class, MemorySegment.class)
+            );
+            MethodHandle streamGetNextHandle = lookup.findStatic(
+                    ArrowCExporter.class, "streamGetNextCallback",
+                    MethodType.methodType(int.class, MemorySegment.class, MemorySegment.class)
+            );
+            MethodHandle streamGetLastErrorHandle = lookup.findStatic(
+                    ArrowCExporter.class, "streamGetLastErrorCallback",
+                    MethodType.methodType(MemorySegment.class, MemorySegment.class)
+            );
+            MethodHandle streamReleaseHandle = lookup.findStatic(
+                    ArrowCExporter.class, "releaseStreamCallback",
+                    MethodType.methodType(void.class, MemorySegment.class)
+            );
 
-            ARRAY_RELEASE_STUB = linker.upcallStub(arrayReleaseHandle, descriptor, Arena.global());
-            SCHEMA_RELEASE_STUB = linker.upcallStub(schemaReleaseHandle, descriptor, Arena.global());
+            ARRAY_RELEASE_STUB = linker.upcallStub(arrayReleaseHandle, releaseDesc, Arena.global());
+            SCHEMA_RELEASE_STUB = linker.upcallStub(schemaReleaseHandle, releaseDesc, Arena.global());
+            STREAM_GET_SCHEMA_STUB = linker.upcallStub(streamGetSchemaHandle, streamIntDesc, Arena.global());
+            STREAM_GET_NEXT_STUB = linker.upcallStub(streamGetNextHandle, streamIntDesc, Arena.global());
+            STREAM_GET_LAST_ERROR_STUB = linker.upcallStub(streamGetLastErrorHandle, streamErrDesc, Arena.global());
+            STREAM_RELEASE_STUB = linker.upcallStub(streamReleaseHandle, releaseDesc, Arena.global());
         } catch (NoSuchMethodException | IllegalAccessException e) {
             throw new ExceptionInInitializerError(e);
         }
@@ -48,7 +92,11 @@ public final class ArrowCExporter {
 
     public static MemorySegment exportTableArray(Table table, Arena structArena) {
         MemorySegment struct = structArena.allocate(ArrowCStructs.ARROW_ARRAY_LAYOUT);
+        populateTableArray(table, struct, structArena);
+        return struct;
+    }
 
+    private static void populateTableArray(Table table, MemorySegment struct, Arena structArena) {
         struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_LENGTH, table.rowCount());
         struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_NULL_COUNT, 0L);
         struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.ARRAY_OFFSET_OFFSET, 0L);
@@ -75,26 +123,35 @@ public final class ArrowCExporter {
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_DICTIONARY, MemorySegment.NULL);
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_RELEASE, ARRAY_RELEASE_STUB);
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_PRIVATE_DATA, MemorySegment.NULL);
-
-        return struct;
     }
 
     public static MemorySegment exportTableSchema(Table table, Arena structArena) {
-        MemorySegment struct = structArena.allocate(ArrowCStructs.ARROW_SCHEMA_LAYOUT);
+        Objects.requireNonNull(table, "table cannot be null");
+        return exportTableSchema(table.schema(), structArena);
+    }
 
+    public static MemorySegment exportTableSchema(Schema schema, Arena structArena) {
+        Objects.requireNonNull(schema, "schema cannot be null");
+        Objects.requireNonNull(structArena, "structArena cannot be null");
+        MemorySegment struct = structArena.allocate(ArrowCStructs.ARROW_SCHEMA_LAYOUT);
+        populateTableSchema(schema, struct, structArena);
+        return struct;
+    }
+
+    private static void populateTableSchema(Schema schema, MemorySegment struct, Arena structArena) {
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_FORMAT, structArena.allocateFrom("+s"));
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_NAME, structArena.allocateFrom("table"));
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_METADATA, MemorySegment.NULL);
         struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.SCHEMA_OFFSET_FLAGS, 0L);
 
-        int numCols = table.columnCount();
+        int numCols = schema.columnCount();
         struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.SCHEMA_OFFSET_N_CHILDREN, numCols);
 
         if (numCols > 0) {
             MemorySegment childrenPtrArray = structArena.allocate(ValueLayout.ADDRESS, numCols);
             for (int i = 0; i < numCols; i++) {
-                boolean nullable = table.schema().getField(i).nullable();
-                MemorySegment childSchema = exportSchema(table.getColumn(i), nullable, structArena);
+                Field field = schema.getField(i);
+                MemorySegment childSchema = exportFieldSchema(field.name(), field.type(), field.nullable(), structArena);
                 childrenPtrArray.setAtIndex(ValueLayout.ADDRESS, i, childSchema);
             }
             struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_CHILDREN, childrenPtrArray);
@@ -105,12 +162,68 @@ public final class ArrowCExporter {
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_DICTIONARY, MemorySegment.NULL);
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_RELEASE, SCHEMA_RELEASE_STUB);
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_PRIVATE_DATA, MemorySegment.NULL);
+    }
 
-        return struct;
+    /**
+     * Exports a lazy {@link Iterator} of {@link Table} batches as an Apache Arrow C {@code ArrowArrayStream}.
+     */
+    public static MemorySegment exportTableStream(Schema schema, Iterator<Table> batches, Arena structArena) {
+        Objects.requireNonNull(schema, "schema cannot be null");
+        Objects.requireNonNull(batches, "batches iterator cannot be null");
+        Objects.requireNonNull(structArena, "structArena cannot be null");
+
+        long streamId = STREAM_ID_GENERATOR.getAndIncrement();
+        ACTIVE_STREAMS.put(streamId, new ExportedStreamState(schema, batches, structArena));
+
+        MemorySegment rawStream = structArena.allocate(ArrowCStructs.ARROW_ARRAY_STREAM_LAYOUT);
+        rawStream.set(ValueLayout.ADDRESS, ArrowCStructs.STREAM_OFFSET_GET_SCHEMA, STREAM_GET_SCHEMA_STUB);
+        rawStream.set(ValueLayout.ADDRESS, ArrowCStructs.STREAM_OFFSET_GET_NEXT, STREAM_GET_NEXT_STUB);
+        rawStream.set(ValueLayout.ADDRESS, ArrowCStructs.STREAM_OFFSET_GET_LAST_ERROR, STREAM_GET_LAST_ERROR_STUB);
+        rawStream.set(ValueLayout.ADDRESS, ArrowCStructs.STREAM_OFFSET_RELEASE, STREAM_RELEASE_STUB);
+        rawStream.set(ValueLayout.ADDRESS, ArrowCStructs.STREAM_OFFSET_PRIVATE_DATA, MemorySegment.ofAddress(streamId));
+
+        // Ensure ACTIVE_STREAMS entry is cleaned up even if structArena closes before consumer calls release
+        return rawStream.reinterpret(
+                ArrowCStructs.ARROW_ARRAY_STREAM_LAYOUT.byteSize(),
+                structArena,
+                _ -> ACTIVE_STREAMS.remove(streamId)
+        );
+    }
+
+    /**
+     * Exports a {@link Table} as an {@code ArrowArrayStream} that yields zero-copy slices of at most {@code maxBatchRows}.
+     */
+    public static MemorySegment exportTableStream(Table table, long maxBatchRows, Arena structArena) {
+        Objects.requireNonNull(table, "table cannot be null");
+        if (maxBatchRows <= 0) {
+            throw new IllegalArgumentException("maxBatchRows must be positive: " + maxBatchRows);
+        }
+
+        Iterator<Table> sliceIterator = new Iterator<>() {
+            private long cursor = 0L;
+
+            @Override
+            public boolean hasNext() {
+                return cursor < table.rowCount();
+            }
+
+            @Override
+            public Table next() {
+                if (!hasNext()) {
+                    throw new NoSuchElementException();
+                }
+                long batchLen = Math.min(maxBatchRows, table.rowCount() - cursor);
+                Table slice = table.slice(cursor, batchLen);
+                cursor += batchLen;
+                return slice;
+            }
+        };
+
+        return exportTableStream(table.schema(), sliceIterator, structArena);
     }
 
     public static MemorySegment exportArray(DataBuffer column, Arena structArena) {
-        if (column instanceof io.github.shridey.jdata.core.buffer.ChunkedBuffer cb) {
+        if (column instanceof ChunkedBuffer cb) {
             column = cb.compact(structArena);
         }
 
@@ -141,26 +254,20 @@ public final class ArrowCExporter {
     }
 
     public static MemorySegment exportSchema(DataBuffer column, Arena structArena) {
-        return exportSchema(column, true, structArena);
+        return exportFieldSchema(column.name(), column.type(), true, structArena);
     }
 
-    private static MemorySegment exportSchema(DataBuffer column, boolean nullable, Arena structArena) {
-        if (column instanceof io.github.shridey.jdata.core.buffer.ChunkedBuffer cb) {
-            column = cb.chunkCount() > 0 ? cb.chunk(0) : cb.compact(structArena);
-        }
-
+    private static MemorySegment exportFieldSchema(String name, DataType type, boolean nullable, Arena structArena) {
         MemorySegment struct = structArena.allocate(ArrowCStructs.ARROW_SCHEMA_LAYOUT);
 
-        DataBuffer dictBuffer = extractDictionary(column);
-        String formatString = dictBuffer != null
-                ? DataType.INT32.getFormat()
-                : column.type().getFormat();
-        MemorySegment dictSchemaPtr = dictBuffer != null
-                ? exportSchema(dictBuffer, false, structArena)
+        boolean isDict = (type == DataType.DICTIONARY);
+        String formatString = isDict ? DataType.INT32.getFormat() : type.getFormat();
+        MemorySegment dictSchemaPtr = isDict
+                ? exportFieldSchema(name + "_dict", DataType.UTF8, false, structArena)
                 : MemorySegment.NULL;
 
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_FORMAT, structArena.allocateFrom(formatString));
-        struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_NAME, structArena.allocateFrom(column.name()));
+        struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_NAME, structArena.allocateFrom(name));
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_METADATA, MemorySegment.NULL);
         struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.SCHEMA_OFFSET_FLAGS, nullable ? ARROW_FLAG_NULLABLE : 0L);
         struct.set(ValueLayout.JAVA_LONG, ArrowCStructs.SCHEMA_OFFSET_N_CHILDREN, 0L);
@@ -180,6 +287,85 @@ public final class ArrowCExporter {
             return idb.dictionary();
         }
         return null;
+    }
+
+    public static int streamGetSchemaCallback(MemorySegment streamPtr, MemorySegment outSchemaPtr) {
+        MemorySegment stream = streamPtr.reinterpret(ArrowCStructs.ARROW_ARRAY_STREAM_LAYOUT.byteSize());
+        if (stream.get(ValueLayout.ADDRESS, ArrowCStructs.STREAM_OFFSET_RELEASE).equals(MemorySegment.NULL)) {
+            return ERRNO_EINVAL;
+        }
+        long streamId = stream.get(ValueLayout.ADDRESS, ArrowCStructs.STREAM_OFFSET_PRIVATE_DATA).address();
+        ExportedStreamState state = ACTIVE_STREAMS.get(streamId);
+        if (state == null) {
+            return ERRNO_EINVAL;
+        }
+
+        try {
+            MemorySegment outSchema = outSchemaPtr.reinterpret(ArrowCStructs.ARROW_SCHEMA_LAYOUT.byteSize());
+            populateTableSchema(state.schema, outSchema, state.structArena);
+            state.lastError = MemorySegment.NULL;
+            return 0;
+        } catch (Throwable t) {
+            state.recordError(t);
+            return ERRNO_EIO;
+        }
+    }
+
+    public static int streamGetNextCallback(MemorySegment streamPtr, MemorySegment outArrayPtr) {
+        MemorySegment stream = streamPtr.reinterpret(ArrowCStructs.ARROW_ARRAY_STREAM_LAYOUT.byteSize());
+        if (stream.get(ValueLayout.ADDRESS, ArrowCStructs.STREAM_OFFSET_RELEASE).equals(MemorySegment.NULL)) {
+            return ERRNO_EINVAL;
+        }
+        long streamId = stream.get(ValueLayout.ADDRESS, ArrowCStructs.STREAM_OFFSET_PRIVATE_DATA).address();
+        ExportedStreamState state = ACTIVE_STREAMS.get(streamId);
+        if (state == null) {
+            return ERRNO_EINVAL;
+        }
+
+        MemorySegment outArray = outArrayPtr.reinterpret(ArrowCStructs.ARROW_ARRAY_LAYOUT.byteSize());
+        try {
+            if (!state.batches.hasNext()) {
+                outArray.fill((byte) 0);
+                state.lastError = MemorySegment.NULL;
+                return 0;
+            }
+
+            Table batch = state.batches.next();
+            if (batch == null) {
+                throw new IllegalStateException("Stream iterator returned a null Table batch.");
+            }
+            if (!batch.schema().equals(state.schema)) {
+                throw new IllegalStateException(
+                        "Batch schema " + batch.schema() + " does not match stream schema " + state.schema
+                );
+            }
+
+            populateTableArray(batch, outArray, state.structArena);
+            state.lastError = MemorySegment.NULL;
+            return 0;
+        } catch (Throwable t) {
+            outArray.fill((byte) 0);
+            state.recordError(t);
+            return ERRNO_EIO;
+        }
+    }
+
+    public static MemorySegment streamGetLastErrorCallback(MemorySegment streamPtr) {
+        MemorySegment stream = streamPtr.reinterpret(ArrowCStructs.ARROW_ARRAY_STREAM_LAYOUT.byteSize());
+        long streamId = stream.get(ValueLayout.ADDRESS, ArrowCStructs.STREAM_OFFSET_PRIVATE_DATA).address();
+        ExportedStreamState state = ACTIVE_STREAMS.get(streamId);
+        return state != null ? state.lastError : MemorySegment.NULL;
+    }
+
+    public static void releaseStreamCallback(MemorySegment streamPtr) {
+        MemorySegment stream = streamPtr.reinterpret(ArrowCStructs.ARROW_ARRAY_STREAM_LAYOUT.byteSize());
+        if (stream.get(ValueLayout.ADDRESS, ArrowCStructs.STREAM_OFFSET_RELEASE).equals(MemorySegment.NULL)) {
+            return;
+        }
+        long streamId = stream.get(ValueLayout.ADDRESS, ArrowCStructs.STREAM_OFFSET_PRIVATE_DATA).address();
+        ACTIVE_STREAMS.remove(streamId);
+        stream.set(ValueLayout.ADDRESS, ArrowCStructs.STREAM_OFFSET_PRIVATE_DATA, MemorySegment.NULL);
+        stream.set(ValueLayout.ADDRESS, ArrowCStructs.STREAM_OFFSET_RELEASE, MemorySegment.NULL);
     }
 
     public static void releaseArrayCallback(MemorySegment structPtr) {
@@ -234,5 +420,25 @@ public final class ArrowCExporter {
         }
 
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_RELEASE, MemorySegment.NULL);
+    }
+
+    private static final class ExportedStreamState {
+        final Schema schema;
+        final Iterator<Table> batches;
+        final Arena structArena;
+        volatile MemorySegment lastError = MemorySegment.NULL;
+
+        ExportedStreamState(Schema schema, Iterator<Table> batches, Arena structArena) {
+            this.schema = schema;
+            this.batches = batches;
+            this.structArena = structArena;
+        }
+
+        void recordError(Throwable t) {
+            String msg = t.getMessage() != null ? t.getMessage() : t.getClass().getName();
+            if (structArena.scope().isAlive()) {
+                this.lastError = structArena.allocateFrom(msg);
+            }
+        }
     }
 }
