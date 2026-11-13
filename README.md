@@ -184,7 +184,7 @@ Executed on Java 25 (`OneBillionRowsBenchmarkTest`) on a 16 GB machine, processi
 mvn clean test
 
 # Run only the 1M-row and 1B-row benchmark suites
-mvn test -Dtest=JDataCoreBenchmarkTest,OneBillionRowsBenchmarkTest
+mvn test -Dtest=OneMillionRowsBenchmarkTest,OneBillionRowsBenchmarkTest
 
 # Build JARs, source JARs, and verify Javadoc compliance
 mvn clean package javadoc:javadoc
