@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.foreign.Arena;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -27,6 +28,10 @@ class TableAndSchemaTest {
         assertEquals(DataType.STRUCT, DataType.fromFormat("+s"));
         assertEquals(DataType.TIMESTAMP_MS, DataType.fromFormat("tsm:UTC"));
         assertEquals(DataType.TIMESTAMP_US, DataType.fromFormat("tsu:Asia/Kolkata"));
+
+        assertEquals(4, DataType.INT32.byteSize());
+        assertEquals("i", DataType.INT32.getFormat());
+        assertEquals(-1, DataType.UTF8.byteSize());
 
         assertThrows(IllegalArgumentException.class, () -> DataType.fromFormat("string"));
         assertThrows(IllegalArgumentException.class, () -> DataType.fromFormat("list"));
@@ -50,13 +55,38 @@ class TableAndSchemaTest {
         assertEquals(0, schema.getFieldIndex("id"));
         assertEquals(1, schema.getFieldIndex("score"));
         assertEquals(-1, schema.getFieldIndex("unknown"));
+
+        Schema differentSchema = new Schema(List.of(new Field("id", DataType.INT32)));
+        assertNotEquals(differentSchema, schema);
+        Object nonSchemaObject = List.of();
+        assertNotEquals(nonSchemaObject, schema);
+
         assertThrows(IllegalArgumentException.class, () -> schema.getField("unknown"));
-        assertThrows(UnsupportedOperationException.class, () -> schema.fields().add(new Field("x", DataType.INT32)));
+        assertThrows(IllegalArgumentException.class, () -> schema.dropField("unknown"));
+        assertThrows(IllegalArgumentException.class, () -> schema.renameField("unknown", "new_name"));
+        assertThrows(UnsupportedOperationException.class,
+                () -> attemptAdd(schema.fields(), new Field("x", DataType.INT32)));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> new Schema(List.of(new Field("id", DataType.INT32), new Field("id", DataType.INT64))));
+        NullPointerException npe = assertThrows(NullPointerException.class,
+                () -> new Schema(Arrays.asList(new Field("id", DataType.INT32), null)));
+        assertTrue(npe.getMessage().contains("Field at index 1"));
+    }
+
+    private static <T> void attemptAdd(List<T> list, T element) {
+        list.add(element);
     }
 
     @Test
-    void testTableStrictValidationInvariants() {
+    void testTableStrictValidationInvariantsAndEmptyTable() {
         try (Arena arena = Arena.ofConfined()) {
+            Table emptyTable = new Table(new Schema(List.of()), List.of());
+            assertEquals(0L, emptyTable.rowCount());
+            assertEquals(0, emptyTable.columnCount());
+            assertTrue(emptyTable.columns().isEmpty());
+            assertTrue(emptyTable.toString().contains("rows=0"));
+
             Int32Buffer ids = Int32Buffer.allocate(arena, "id", 3);
             Int32Buffer wrongLength = Int32Buffer.allocate(arena, "val", 4);
             Int32Buffer wrongName = Int32Buffer.allocate(arena, "other_name", 3);
@@ -64,6 +94,7 @@ class TableAndSchemaTest {
             valsWithNull.setNull(1);
 
             Schema s1 = new Schema(List.of(new Field("id", DataType.INT32), new Field("val", DataType.INT32)));
+            assertThrows(IllegalArgumentException.class, () -> new Table(s1, List.of(ids)));
             assertThrows(IllegalArgumentException.class, () -> new Table(s1, List.of(ids, wrongLength)));
             assertThrows(IllegalArgumentException.class, () -> new Table(s1, List.of(ids, wrongName)));
             assertThrows(IllegalArgumentException.class, () -> new Table(s1, List.of(ids, valsWithNull)));
@@ -73,6 +104,28 @@ class TableAndSchemaTest {
                     new Field("val", DataType.FLOAT64, false)
             ));
             assertThrows(IllegalArgumentException.class, () -> new Table(nonNullSchema, List.of(ids, valsWithNull)));
+
+            Table validTable = new Table(
+                    new Schema(List.of(new Field("id", DataType.INT32, false))),
+                    List.of(ids)
+            );
+            assertEquals(1, validTable.columns().size());
+            assertSame(validTable, Table.concat(List.of(validTable)));
+            assertThrows(IllegalArgumentException.class, () -> Table.concat(List.of()));
+            assertThrows(IllegalArgumentException.class, () -> validTable.concat(emptyTable));
+            assertThrows(IllegalArgumentException.class, () -> validTable.getColumn("missing"));
+            assertThrows(IllegalArgumentException.class, () -> validTable.select("missing"));
+            assertThrows(IllegalArgumentException.class, () -> validTable.dropColumn("missing"));
+            assertThrows(IllegalArgumentException.class, () -> validTable.renameColumn("missing", "x"));
+            assertThrows(IllegalArgumentException.class, () -> validTable.head(-1));
+            assertThrows(IllegalArgumentException.class, () -> validTable.tail(-1));
+
+            Int32Buffer selWithNull = Int32Buffer.allocate(arena, "sel", 2);
+            selWithNull.set(0, 1);
+            selWithNull.setNull(1);
+            Table gathered = validTable.take(selWithNull, arena);
+            assertTrue(gathered.schema().getField(0).nullable());
+            assertTrue(gathered.getColumn(0).isNull(1));
         }
     }
 

@@ -9,9 +9,9 @@ import java.lang.foreign.ValueLayout;
 import java.util.Objects;
 
 /**
- * A sealed, read-only Apache Arrow Dictionary-Encoded column (INT32 indices -> UTF8 dictionary).
+ * A sealed, read-only Apache Arrow Dictionary-Encoded column ({@code INT32 indices -> UTF8 dictionary}).
  * Compresses repeated categorical strings into 32-bit integer codes for O(1) equality comparisons,
- * compact memory footprint, and SIMD-accelerated group-by/filter execution.
+ * compact memory footprint, and SIMD-accelerated group-by and filter execution.
  */
 public final class DictionaryBuffer extends AbstractDataBuffer {
 
@@ -26,7 +26,12 @@ public final class DictionaryBuffer extends AbstractDataBuffer {
     }
 
     /**
-     * Encodes a Java String array into a compact DictionaryBuffer.
+     * Encodes a Java {@code String[]} into a compact {@link DictionaryBuffer}.
+     *
+     * @param arena  the arena governing off-heap allocations
+     * @param name   the column name
+     * @param values the array of strings to dictionary-encode
+     * @return a newly allocated {@link DictionaryBuffer}
      */
     public static DictionaryBuffer allocate(Arena arena, String name, String[] values) {
         Objects.requireNonNull(arena, "Arena cannot be null");
@@ -41,6 +46,10 @@ public final class DictionaryBuffer extends AbstractDataBuffer {
     /**
      * Encodes an existing off-heap {@link UTF8Buffer} into a {@link DictionaryBuffer}
      * completely off-heap without allocating intermediate Java Strings.
+     *
+     * @param arena  the arena governing off-heap allocations
+     * @param source the source {@link UTF8Buffer} to encode
+     * @return a newly encoded {@link DictionaryBuffer}
      */
     public static DictionaryBuffer fromUTF8(Arena arena, UTF8Buffer source) {
         Objects.requireNonNull(arena, "Arena cannot be null");
@@ -54,6 +63,12 @@ public final class DictionaryBuffer extends AbstractDataBuffer {
     /**
      * Wraps an existing {@link Int32Buffer} of dictionary codes and a {@link UTF8Buffer} dictionary
      * in O(1) with zero memory copying, validating that all non-null codes lie within dictionary bounds.
+     *
+     * @param name       the column name
+     * @param indices    the 32-bit integer dictionary codes
+     * @param dictionary the deduplicated {@link UTF8Buffer} dictionary
+     * @return a wrapped {@link DictionaryBuffer}
+     * @throws IndexOutOfBoundsException if any non-null code in {@code indices} is out of bounds for {@code dictionary}
      */
     public static DictionaryBuffer ofIndices(String name, Int32Buffer indices, UTF8Buffer dictionary) {
         Objects.requireNonNull(name, "Column name cannot be null");
@@ -82,7 +97,16 @@ public final class DictionaryBuffer extends AbstractDataBuffer {
     }
 
     /**
-     * Zero-copy wraps pre-allocated or memory-mapped validity and 32-bit index segments with a UTF8Buffer dictionary.
+     * Zero-copy wraps pre-allocated or memory-mapped validity and 32-bit index segments with a {@link UTF8Buffer} dictionary.
+     *
+     * @param name           the column name
+     * @param arena          the governing arena
+     * @param length         the logical element count
+     * @param offset         the starting physical element offset
+     * @param validityBitmap the validity bitmap segment (or {@link MemorySegment#NULL})
+     * @param indicesBuffer  the 32-bit integer codes segment
+     * @param dictionary     the deduplicated {@link UTF8Buffer} dictionary
+     * @return a wrapped {@link DictionaryBuffer}
      */
     public static DictionaryBuffer wrap(String name, Arena arena, long length, long offset,
                                         MemorySegment validityBitmap, MemorySegment indicesBuffer, UTF8Buffer dictionary) {
@@ -95,6 +119,10 @@ public final class DictionaryBuffer extends AbstractDataBuffer {
 
     /**
      * Returns the 32-bit dictionary index (code) at the given logical row index.
+     *
+     * @param index the zero-based logical row index
+     * @return the 32-bit dictionary code at {@code index}
+     * @throws IndexOutOfBoundsException if {@code index < 0 || index >= length()}
      */
     public int getIndex(long index) {
         checkBounds(index);
@@ -103,7 +131,11 @@ public final class DictionaryBuffer extends AbstractDataBuffer {
     }
 
     /**
-     * Resolves and returns the decoded UTF-8 String at the given logical row index, or {@code null} if null.
+     * Resolves and returns the decoded UTF-8 {@link String} at the given logical row index, or {@code null} if null.
+     *
+     * @param index the zero-based logical row index
+     * @return the decoded {@link String}, or {@code null} if the slot is null
+     * @throws IndexOutOfBoundsException if {@code index < 0 || index >= length()}
      */
     public String getString(long index) {
         checkBounds(index);
@@ -116,6 +148,8 @@ public final class DictionaryBuffer extends AbstractDataBuffer {
 
     /**
      * Returns the underlying deduplicated {@link UTF8Buffer} dictionary.
+     *
+     * @return the dictionary {@link UTF8Buffer}
      */
     public UTF8Buffer dictionary() {
         return dictionary;
@@ -123,6 +157,8 @@ public final class DictionaryBuffer extends AbstractDataBuffer {
 
     /**
      * Returns the number of unique entries in the dictionary.
+     *
+     * @return the dictionary cardinality
      */
     public long cardinality() {
         return dictionary.length();
@@ -131,14 +167,19 @@ public final class DictionaryBuffer extends AbstractDataBuffer {
     /**
      * Returns a zero-copy {@link Int32Buffer} view over this column's dictionary codes and validity bitmap.
      * Enables vectorized SIMD kernels to execute directly on the 32-bit integer codes.
+     *
+     * @return a zero-copy {@link Int32Buffer} view of the dictionary codes
      */
     public Int32Buffer indices() {
         return new Int32Buffer(this.name, this.arena, this.length, this.offset, this.validityBitmap, this.indicesBuffer);
     }
 
     /**
-     * Decodes this DictionaryBuffer into a flat off-heap {@link UTF8Buffer} without allocating
+     * Decodes this {@link DictionaryBuffer} into a flat off-heap {@link UTF8Buffer} without allocating
      * intermediate Java Strings on the heap.
+     *
+     * @param targetArena the arena in which to allocate the decoded {@link UTF8Buffer}
+     * @return a flat decoded {@link UTF8Buffer}
      */
     public UTF8Buffer decode(Arena targetArena) {
         Objects.requireNonNull(targetArena, "targetArena cannot be null");
@@ -169,7 +210,7 @@ public final class DictionaryBuffer extends AbstractDataBuffer {
 
         MemorySegment outValidity = ArrowMemoryAllocator.allocateAligned(targetArena, bitmapBytes);
         MemorySegment outOffsets = ArrowMemoryAllocator.allocateAligned(targetArena, offsetsBytes);
-        MemorySegment outData = ArrowMemoryAllocator.allocateAligned(targetArena, totalDataBytes == 0 ? 64L : totalDataBytes);
+        MemorySegment outData = ArrowMemoryAllocator.allocateAligned(targetArena, totalDataBytes);
 
         UTF8Buffer decoded = new UTF8Buffer(this.name, targetArena, this.length, 0, outValidity, outOffsets, outData);
         decoded.setAllValid();
@@ -196,7 +237,9 @@ public final class DictionaryBuffer extends AbstractDataBuffer {
     }
 
     /**
-     * Materializes the column to a Java String[], decoding each unique dictionary entry at most once.
+     * Materializes the column to a Java {@code String[]}, decoding each unique dictionary entry at most once.
+     *
+     * @return a Java {@code String[]} containing this column's decoded values
      */
     public String[] toArray() {
         if (this.length > Integer.MAX_VALUE) {
@@ -218,7 +261,9 @@ public final class DictionaryBuffer extends AbstractDataBuffer {
     }
 
     /**
-     * Copies the 32-bit dictionary codes into a Java int[].
+     * Copies the 32-bit dictionary codes into a newly allocated Java {@code int[]}.
+     *
+     * @return a Java {@code int[]} of dictionary codes
      */
     public int[] toIndexArray() {
         return indices().toArray();

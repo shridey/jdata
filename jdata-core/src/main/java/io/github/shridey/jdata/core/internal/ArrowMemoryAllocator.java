@@ -1,14 +1,14 @@
 package io.github.shridey.jdata.core.internal;
 
-import io.github.shridey.jdata.core.PooledArena;
+import io.github.shridey.jdata.core.memory.PooledArena;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.util.Objects;
 
 /**
- * A utility class responsible for allocating off-heap memory that strictly complies
- * with Apache Arrow's 64-byte alignment and 64-byte tail padding requirements.
+ * Internal utility responsible for allocating off-heap memory that strictly complies
+ * with Apache Arrow's 64-byte address alignment and 64-byte SIMD tail padding requirements.
  */
 public final class ArrowMemoryAllocator {
 
@@ -16,6 +16,11 @@ public final class ArrowMemoryAllocator {
 
     /**
      * Rounds a byte size up to the nearest multiple of 64 bytes (minimum 64 bytes) for SIMD / AVX-512 tail safety.
+     *
+     * @param byteSize the logical byte size (must be {@code >= 0})
+     * @return the 64-byte-padded byte size (at least {@code 64L})
+     * @throws IllegalArgumentException if {@code byteSize < 0}
+     * @throws ArithmeticException      if padding {@code byteSize} overflows {@code Long.MAX_VALUE}
      */
     public static long padTo64(long byteSize) {
         if (byteSize < 0) {
@@ -32,6 +37,10 @@ public final class ArrowMemoryAllocator {
 
     /**
      * Allocates a contiguous block of off-heap memory aligned and padded to a 64-byte boundary.
+     *
+     * @param arena    the memory arena that controls the lifecycle of this allocation
+     * @param byteSize the logical number of bytes required
+     * @return a 64-byte-aligned and 64-byte-padded {@link MemorySegment} initialized to zero
      */
     public static MemorySegment allocateAligned(Arena arena, long byteSize) {
         Objects.requireNonNull(arena, "Arena cannot be null.");
@@ -42,6 +51,12 @@ public final class ArrowMemoryAllocator {
     /**
      * Reallocates an existing buffer to a larger 64-byte-padded capacity.
      * Routes through {@link PooledArena#reallocate} when pooled to expand in-place or recycle old blocks.
+     *
+     * @param arena       the memory arena governing the buffer
+     * @param current     the existing segment to resize
+     * @param bytesToCopy the number of valid bytes to copy if relocated
+     * @param newByteSize the requested new logical byte capacity
+     * @return the resized {@link MemorySegment}
      */
     public static MemorySegment reallocateAligned(Arena arena, MemorySegment current, long bytesToCopy, long newByteSize) {
         Objects.requireNonNull(arena, "Arena cannot be null.");
@@ -65,9 +80,17 @@ public final class ArrowMemoryAllocator {
     }
 
     /**
-     * Validates common invariants when wrapping external or pre-computed MemorySegments into a DataBuffer.
+     * Validates common invariants when wrapping external or pre-computed {@link MemorySegment}s into a DataBuffer.
+     *
+     * @param name           the column name
+     * @param arena          the governing arena
+     * @param length         the logical element count
+     * @param offset         the starting physical element offset
+     * @param validityBitmap the validity bitmap segment (or {@link MemorySegment#NULL})
+     * @param dataBuffer     the primary values/data segment
+     * @param minDataBytes   the minimum required byte capacity of {@code dataBuffer}
      */
-    public static long validateWrapBounds(String name, Arena arena, long length, long offset,
+    public static void validateWrapBounds(String name, Arena arena, long length, long offset,
                                           MemorySegment validityBitmap, MemorySegment dataBuffer, long minDataBytes) {
         Objects.requireNonNull(name, "Column name cannot be null");
         Objects.requireNonNull(arena, "Arena cannot be null");
@@ -96,6 +119,5 @@ public final class ArrowMemoryAllocator {
                     "dataBuffer byteSize (" + dataBuffer.byteSize() + ") is smaller than required (" + minDataBytes + ")"
             );
         }
-        return totalElements;
     }
 }

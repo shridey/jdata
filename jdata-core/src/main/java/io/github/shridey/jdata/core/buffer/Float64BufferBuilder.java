@@ -8,10 +8,20 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Objects;
 
+/**
+ * Dynamically builds an off-heap 64-bit floating-point {@link Float64Buffer}.
+ */
 public final class Float64BufferBuilder extends AbstractBufferBuilder {
 
     private MemorySegment dataBuffer;
 
+    /**
+     * Creates a new {@link Float64BufferBuilder} with the specified initial row capacity.
+     *
+     * @param arena           the memory arena governing allocations
+     * @param name            the column name
+     * @param initialCapacity the initial logical row capacity
+     */
     public Float64BufferBuilder(Arena arena, String name, long initialCapacity) {
         super(arena, name, initialCapacity);
 
@@ -26,6 +36,12 @@ public final class Float64BufferBuilder extends AbstractBufferBuilder {
         this.dataBuffer = ArrowMemoryAllocator.reallocateAligned(arena, dataBuffer, currentBytes, newDataBytes);
     }
 
+    /**
+     * Appends a single non-null {@code double} value.
+     *
+     * @param value the {@code double} value to append
+     * @return this builder
+     */
     public Float64BufferBuilder append(double value) {
         ensureLogicalCapacity(1);
 
@@ -36,6 +52,11 @@ public final class Float64BufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
+    /**
+     * Appends a single null entry.
+     *
+     * @return this builder
+     */
     public Float64BufferBuilder appendNull() {
         ensureLogicalCapacity(1);
         markCurrentNull();
@@ -43,6 +64,12 @@ public final class Float64BufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
+    /**
+     * Bulk-appends a Java {@code double[]} via vectorized off-heap memory copy.
+     *
+     * @param values the array of {@code double} values to append
+     * @return this builder
+     */
     public Float64BufferBuilder appendAll(double[] values) {
         Objects.requireNonNull(values, "Values array cannot be null");
         if (values.length == 0) return this;
@@ -59,10 +86,26 @@ public final class Float64BufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
+    /**
+     * Appends a contiguous range of elements from an existing {@link Float64Buffer}.
+     *
+     * @param source   the source buffer
+     * @param srcIndex the starting logical index in {@code source}
+     * @param length   the number of elements to append
+     * @return this builder
+     */
     public Float64BufferBuilder appendBlock(Float64Buffer source, long srcIndex, long length) {
         return appendImportedBlock(source, srcIndex, length);
     }
 
+    /**
+     * Appends a range of elements from any {@link DataBuffer} of type {@link DataType#FLOAT64}.
+     *
+     * @param source   the source buffer
+     * @param srcIndex the starting logical index in {@code source}
+     * @param length   the number of elements to append
+     * @return this builder
+     */
     public Float64BufferBuilder appendImportedBlock(DataBuffer source, long srcIndex, long length) {
         Objects.requireNonNull(source, "Source buffer cannot be null");
         if (source.type() != DataType.FLOAT64) {

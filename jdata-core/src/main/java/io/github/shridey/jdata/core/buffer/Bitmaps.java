@@ -10,7 +10,7 @@ import java.util.Objects;
 
 /**
  * 64-bit word-level bitmap algorithms for validity intersection, boolean vector logic,
- * and hardware-accelerated (POPCNT / TZCNT) SelectionVector extraction.
+ * and hardware-accelerated ({@code POPCNT} / {@code TZCNT}) SelectionVector extraction.
  */
 public final class Bitmaps {
 
@@ -19,8 +19,19 @@ public final class Bitmaps {
     /**
      * Extracts up to 64 bits from a bitmap starting at an arbitrary bit offset.
      * Safely handles unaligned bit offsets (from zero-copy slices) and tail boundaries.
+     *
+     * @param bitmap   the source off-heap bitmap segment (or {@link MemorySegment#NULL})
+     * @param startBit the zero-based starting bit index
+     * @param bitCount the number of bits to extract (must be in {@code [1, 64]})
+     * @return a {@code long} containing the extracted bits in its lowest {@code bitCount} positions
+     * @throws NullPointerException     if {@code bitmap} is {@code null}
+     * @throws IllegalArgumentException if {@code startBit < 0} or {@code bitCount} is outside {@code [1, 64]}
      */
     public static long extractWord(MemorySegment bitmap, long startBit, int bitCount) {
+        Objects.requireNonNull(bitmap, "bitmap cannot be null");
+        if (startBit < 0) {
+            throw new IllegalArgumentException("startBit cannot be negative: " + startBit);
+        }
         if (bitCount <= 0 || bitCount > 64) {
             throw new IllegalArgumentException("bitCount must be in [1..64], got: " + bitCount);
         }
@@ -60,7 +71,13 @@ public final class Bitmaps {
 
     /**
      * Computes the bitwise-AND validity bitmap of two equal-length buffers 64 bits at a time.
-     * Used by binary compute kernels (e.g., colA + colB, colA == colB) in jdata-num.
+     * Used by binary compute kernels (e.g., {@code colA + colB}, {@code colA == colB}) in {@code jdata-num}.
+     *
+     * @param left        the left operand buffer
+     * @param right       the right operand buffer
+     * @param targetArena the arena in which to allocate the resulting validity bitmap
+     * @return a 64-byte-aligned and padded {@link MemorySegment} representing the intersected validity bitmap
+     * @throws IllegalArgumentException if {@code left.length() != right.length()}
      */
     public static MemorySegment intersectValidity(DataBuffer left, DataBuffer right, Arena targetArena) {
         Objects.requireNonNull(left, "left buffer cannot be null");
@@ -116,28 +133,51 @@ public final class Bitmaps {
     }
 
     /**
-     * Bitwise-AND of two BooleanBuffers 64 bits at a time.
+     * Computes the element-wise logical AND of two {@link BooleanBuffer}s 64 bits at a time.
+     *
+     * @param left        the left boolean buffer
+     * @param right       the right boolean buffer
+     * @param resultName  the column name for the resulting buffer
+     * @param targetArena the arena in which to allocate the result
+     * @return a new {@link BooleanBuffer} containing {@code left AND right}
      */
     public static BooleanBuffer and(BooleanBuffer left, BooleanBuffer right, String resultName, Arena targetArena) {
         return applyBinaryOp(left, right, resultName, targetArena, BinaryBitOp.AND);
     }
 
     /**
-     * Bitwise-OR of two BooleanBuffers 64 bits at a time.
+     * Computes the element-wise logical OR of two {@link BooleanBuffer}s 64 bits at a time.
+     *
+     * @param left        the left boolean buffer
+     * @param right       the right boolean buffer
+     * @param resultName  the column name for the resulting buffer
+     * @param targetArena the arena in which to allocate the result
+     * @return a new {@link BooleanBuffer} containing {@code left OR right}
      */
     public static BooleanBuffer or(BooleanBuffer left, BooleanBuffer right, String resultName, Arena targetArena) {
         return applyBinaryOp(left, right, resultName, targetArena, BinaryBitOp.OR);
     }
 
     /**
-     * Bitwise-XOR of two BooleanBuffers 64 bits at a time.
+     * Computes the element-wise logical XOR of two {@link BooleanBuffer}s 64 bits at a time.
+     *
+     * @param left        the left boolean buffer
+     * @param right       the right boolean buffer
+     * @param resultName  the column name for the resulting buffer
+     * @param targetArena the arena in which to allocate the result
+     * @return a new {@link BooleanBuffer} containing {@code left XOR right}
      */
     public static BooleanBuffer xor(BooleanBuffer left, BooleanBuffer right, String resultName, Arena targetArena) {
         return applyBinaryOp(left, right, resultName, targetArena, BinaryBitOp.XOR);
     }
 
     /**
-     * Bitwise-NOT of a BooleanBuffer 64 bits at a time, preserving null slots.
+     * Computes the element-wise logical NOT of a {@link BooleanBuffer} 64 bits at a time, preserving null slots.
+     *
+     * @param source      the source boolean buffer
+     * @param resultName  the column name for the resulting buffer
+     * @param targetArena the arena in which to allocate the result
+     * @return a new {@link BooleanBuffer} containing {@code NOT source}
      */
     public static BooleanBuffer not(BooleanBuffer source, String resultName, Arena targetArena) {
         Objects.requireNonNull(source, "source cannot be null");
@@ -172,8 +212,13 @@ public final class Bitmaps {
     }
 
     /**
-     * Converts a BooleanBuffer filter mask into an Int32Buffer of matching row indices (SelectionVector)
-     * using 64-bit word scans and TZCNT (Long.numberOfTrailingZeros). Null slots evaluate to false.
+     * Converts a {@link BooleanBuffer} filter mask into an {@link Int32Buffer} of matching row indices
+     * (SelectionVector) using 64-bit word scans and hardware {@code TZCNT} ({@link Long#numberOfTrailingZeros}).
+     * Null slots evaluate to {@code false}.
+     *
+     * @param mask        the boolean filter predicate mask
+     * @param targetArena the arena in which to allocate the selection indices buffer
+     * @return an {@link Int32Buffer} containing the zero-based indices where {@code mask} is valid and {@code true}
      */
     public static Int32Buffer toSelectionIndices(BooleanBuffer mask, Arena targetArena) {
         Objects.requireNonNull(mask, "mask cannot be null");

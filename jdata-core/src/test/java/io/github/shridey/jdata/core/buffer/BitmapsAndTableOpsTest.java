@@ -20,7 +20,6 @@ class BitmapsAndTableOpsTest {
     @Test
     void testWordLevelBitmapsLogicAndSelectionIndicesOnSlicedBuffers() {
         try (Arena arena = Arena.ofConfined()) {
-            // Use 75 elements and an unaligned slice (offset = 3, length = 70) to cross 64-bit word boundaries
             BooleanBuffer rawA = BooleanBuffer.allocate(arena, "a", 75);
             BooleanBuffer rawB = BooleanBuffer.allocate(arena, "b", 75);
 
@@ -28,6 +27,12 @@ class BitmapsAndTableOpsTest {
                 rawA.set(i, (i % 2) == 0);
                 rawB.set(i, (i % 3) == 0);
             }
+
+            // Test intersectValidity fast path when neither buffer has nulls
+            MemorySegment nonNullIntersect = Bitmaps.intersectValidity(rawA, rawB, arena);
+            assertEquals(75L, Long.bitCount(Bitmaps.extractWord(nonNullIntersect, 0, 64))
+                    + Long.bitCount(Bitmaps.extractWord(nonNullIntersect, 64, 11)));
+
             rawA.setNull(9);  // slice index 6
             rawB.setNull(15); // slice index 12
 
@@ -60,7 +65,6 @@ class BitmapsAndTableOpsTest {
                 }
             }
 
-            // Verify SelectionVector extraction (nulls must evaluate to false)
             Int32Buffer sel = Bitmaps.toSelectionIndices(andBuf, arena);
             for (int i = 0; i < sel.length(); i++) {
                 int matchedRow = sel.get(i);
@@ -68,6 +72,13 @@ class BitmapsAndTableOpsTest {
                 assertNotEquals(12, matchedRow);
                 assertTrue(andBuf.get(matchedRow));
             }
+
+            // Validation guards on Bitmaps
+            assertThrows(IllegalArgumentException.class, () -> Bitmaps.extractWord(rawA.buffer(0), -1, 8));
+            assertThrows(IllegalArgumentException.class, () -> Bitmaps.extractWord(rawA.buffer(0), 0, 0));
+            assertThrows(IllegalArgumentException.class, () -> Bitmaps.extractWord(rawA.buffer(0), 0, 65));
+            assertThrows(IllegalArgumentException.class, () -> Bitmaps.intersectValidity(rawA, sliceA, arena));
+            assertThrows(IllegalArgumentException.class, () -> Bitmaps.and(rawA, sliceA, "bad", arena));
         }
     }
 
@@ -76,9 +87,8 @@ class BitmapsAndTableOpsTest {
         try (Arena arena = Arena.ofConfined()) {
             Int32Buffer indices = Int32Buffer.allocate(arena, "idx", 4);
             indices.copyFrom(new int[]{3, 1, 0, 2});
-            indices.setNull(2); // Output index 2 must become null across all buffers
+            indices.setNull(2);
 
-            // 1. Int32, Int64, Float32, Float64, Boolean
             Int32Buffer i32 = Int32Buffer.allocate(arena, "i32", 4);
             i32.copyFrom(new int[]{10, 20, 30, 40});
             Int32Buffer gI32 = i32.withName("i32_renamed").take(indices, arena);
@@ -112,7 +122,6 @@ class BitmapsAndTableOpsTest {
             assertTrue(gBool.get(0));
             assertTrue(gBool.isNull(2));
 
-            // 2. UTF8, Dictionary, ChunkedBuffer, and ImportedDataBuffer
             UTF8Buffer utf8 = UTF8Buffer.allocate(arena, "utf8", new String[]{"a", "b", "c", "d"});
             UTF8Buffer gUtf8 = utf8.withName("utf8_r").take(indices, arena);
             assertArrayEquals(new String[]{"d", "b", null, "c"}, gUtf8.toArray());
@@ -121,10 +130,14 @@ class BitmapsAndTableOpsTest {
             DictionaryBuffer gDict = dict.withName("dict_r").take(indices, arena);
             assertArrayEquals(new String[]{"Z", "Y", null, "X"}, gDict.toArray());
 
-            ChunkedBuffer chunked = ChunkedBuffer.of(i32.slice(0, 2), i32.slice(2, 2)).withName("chunked_r");
-            Int32Buffer gChunked = (Int32Buffer) chunked.take(indices, arena);
-            assertEquals(40, gChunked.get(0));
-            assertTrue(gChunked.isNull(2));
+            // ChunkedBuffer take() across all types
+            assertEquals(40, ((Int32Buffer) ChunkedBuffer.of(i32.slice(0, 2), i32.slice(2, 2)).withName("c").take(indices, arena)).get(0));
+            assertEquals(400L, ((Int64Buffer) ChunkedBuffer.of(i64.slice(0, 2), i64.slice(2, 2)).take(indices, arena)).get(0));
+            assertEquals(4.5f, ((Float32Buffer) ChunkedBuffer.of(f32.slice(0, 2), f32.slice(2, 2)).take(indices, arena)).get(0));
+            assertEquals(40.5, ((Float64Buffer) ChunkedBuffer.of(f64.slice(0, 2), f64.slice(2, 2)).take(indices, arena)).get(0));
+            assertTrue(((BooleanBuffer) ChunkedBuffer.of(bool.slice(0, 2), bool.slice(2, 2)).take(indices, arena)).get(0));
+            assertEquals("d", ((UTF8Buffer) ChunkedBuffer.of(utf8.slice(0, 2), utf8.slice(2, 2)).take(indices, arena)).getString(0));
+            assertEquals("Z", ((DictionaryBuffer) ChunkedBuffer.of(dict.slice(0, 2), dict.slice(2, 2)).take(indices, arena)).getString(0));
 
             MemorySegment cArr = ArrowCExporter.exportArray(i32, arena);
             MemorySegment cSch = ArrowCExporter.exportSchema(i32, arena);
@@ -158,11 +171,9 @@ class BitmapsAndTableOpsTest {
 
             Table table = new Table(schema, List.of(id, price, tier));
 
-            // 1. head() and tail()
             assertEquals(2L, table.head(2).rowCount());
             assertEquals(4, ((Int32Buffer) table.tail(2).getColumn("id")).get(0));
 
-            // 2. select(), dropColumn(), renameColumn(), addColumn(), replaceColumn()
             Table projected = table.select("id", "tier");
             assertEquals(2, projected.columnCount());
 
@@ -180,7 +191,6 @@ class BitmapsAndTableOpsTest {
             Table dropped = replaced.dropColumn("price");
             assertEquals(2, dropped.columnCount());
 
-            // 3. Table.filter(BooleanBuffer mask) -> rows where price >= 30.0 (indices 1, 3, 4)
             BooleanBuffer mask = BooleanBuffer.allocate(arena, "mask", 5);
             mask.copyFrom(new boolean[]{false, true, false, true, true});
 
@@ -189,6 +199,9 @@ class BitmapsAndTableOpsTest {
             assertArrayEquals(new int[]{2, 4, 5}, ((Int32Buffer) filtered.getColumn("id")).toArray());
             assertArrayEquals(new double[]{50.0, 80.0, 30.0}, ((Float64Buffer) filtered.getColumn("price")).toArray());
             assertArrayEquals(new String[]{"Gold", "Gold", "Silver"}, ((DictionaryBuffer) filtered.getColumn("tier")).toArray());
+
+            assertThrows(IllegalArgumentException.class,
+                    () -> table.filter(BooleanBuffer.allocate(arena, "bad_mask", 2), arena));
         }
     }
 }

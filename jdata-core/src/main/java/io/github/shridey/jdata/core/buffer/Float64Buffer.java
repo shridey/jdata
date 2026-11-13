@@ -7,6 +7,9 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Objects;
 
+/**
+ * A contiguous off-heap Apache Arrow {@link DataType#FLOAT64} column storing 64-bit IEEE 754 doubles.
+ */
 public final class Float64Buffer extends AbstractDataBuffer {
 
     private final MemorySegment dataBuffer;
@@ -16,6 +19,14 @@ public final class Float64Buffer extends AbstractDataBuffer {
         this.dataBuffer = dataBuffer;
     }
 
+    /**
+     * Allocates a new 64-byte-aligned and 64-byte tail-padded {@link Float64Buffer} initialized to {@code 0.0d} and valid.
+     *
+     * @param arena  the arena governing the off-heap allocation
+     * @param name   the column name
+     * @param length the number of elements to allocate
+     * @return a newly allocated {@link Float64Buffer}
+     */
     public static Float64Buffer allocate(Arena arena, String name, long length) {
         Objects.requireNonNull(arena, "Arena cannot be null");
         Objects.requireNonNull(name, "Column name cannot be null");
@@ -36,6 +47,14 @@ public final class Float64Buffer extends AbstractDataBuffer {
 
     /**
      * Zero-copy wraps pre-allocated or memory-mapped validity and 64-bit double data segments.
+     *
+     * @param name           the column name
+     * @param arena          the governing arena
+     * @param length         the logical element count
+     * @param offset         the starting physical element offset
+     * @param validityBitmap the validity bitmap segment (or {@link MemorySegment#NULL})
+     * @param dataBuffer     the 64-bit double values segment
+     * @return a wrapped {@link Float64Buffer}
      */
     public static Float64Buffer wrap(String name, Arena arena, long length, long offset,
                                      MemorySegment validityBitmap, MemorySegment dataBuffer) {
@@ -45,12 +64,26 @@ public final class Float64Buffer extends AbstractDataBuffer {
         return new Float64Buffer(name, arena, length, offset, validityBitmap, dataBuffer);
     }
 
+    /**
+     * Reads the {@code double} value at the specified logical index.
+     *
+     * @param index the zero-based logical index
+     * @return the {@code double} value at {@code index}
+     * @throws IndexOutOfBoundsException if {@code index < 0 || index >= length()}
+     */
     public double get(long index) {
         checkBounds(index);
         long physicalIndex = index + this.offset;
         return dataBuffer.get(ValueLayout.JAVA_DOUBLE, physicalIndex * ValueLayout.JAVA_DOUBLE.byteSize());
     }
 
+    /**
+     * Writes a {@code double} value at the specified logical index and marks the slot valid.
+     *
+     * @param index the zero-based logical index
+     * @param value the {@code double} value to write
+     * @throws IndexOutOfBoundsException if {@code index < 0 || index >= length()}
+     */
     public void set(long index, double value) {
         checkBounds(index);
         long physicalIndex = index + this.offset;
@@ -58,6 +91,12 @@ public final class Float64Buffer extends AbstractDataBuffer {
         setValid(index);
     }
 
+    /**
+     * Bulk-copies a Java {@code double[]} into off-heap memory starting at logical index {@code 0}.
+     *
+     * @param source the source array to copy from
+     * @throws IndexOutOfBoundsException if {@code source.length > length()}
+     */
     public void copyFrom(double[] source) {
         Objects.requireNonNull(source, "Source array cannot be null");
         if (source.length > this.length) {
@@ -79,6 +118,14 @@ public final class Float64Buffer extends AbstractDataBuffer {
         }
     }
 
+    /**
+     * Copies a contiguous block of elements and validity bits from {@code source} into this buffer.
+     *
+     * @param source    the source {@link Float64Buffer}
+     * @param srcIndex  the starting logical index in {@code source}
+     * @param destIndex the starting logical index in this buffer
+     * @param length    the number of elements to copy
+     */
     public void copyBlock(Float64Buffer source, long srcIndex, long destIndex, long length) {
         Objects.requireNonNull(source, "Source buffer cannot be null");
         Objects.checkFromIndexSize(srcIndex, length, source.length);
@@ -111,6 +158,11 @@ public final class Float64Buffer extends AbstractDataBuffer {
         }
     }
 
+    /**
+     * Materializes the elements of this buffer into a newly allocated Java {@code double[]}.
+     *
+     * @return a Java {@code double[]} containing this buffer's values
+     */
     public double[] toArray() {
         if (this.length > Integer.MAX_VALUE) {
             throw new IllegalStateException("Buffer length is too large to fit in a Java array.");

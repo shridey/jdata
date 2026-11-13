@@ -27,7 +27,9 @@
             --add-opens jdata.core/io.github.shridey.jdata.core.buffer=org.junit.platform.commons,ALL-UNNAMED
             --add-opens jdata.core/io.github.shridey.jdata.core.ffi=org.junit.platform.commons,ALL-UNNAMED
             --add-opens jdata.core/io.github.shridey.jdata.core.layout=org.junit.platform.commons,ALL-UNNAMED
+            --add-opens jdata.core/io.github.shridey.jdata.core.memory=org.junit.platform.commons,ALL-UNNAMED
             --add-opens jdata.core/io.github.shridey.jdata.core.internal=org.junit.platform.commons,ALL-UNNAMED
+            --add-opens jdata.core/io.github.shridey.jdata.core.benchmark=org.junit.platform.commons,ALL-UNNAMED
           </argLine>
         </configuration>
       </plugin>

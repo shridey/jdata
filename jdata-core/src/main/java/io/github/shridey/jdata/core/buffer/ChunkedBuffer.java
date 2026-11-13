@@ -27,6 +27,16 @@ public final class ChunkedBuffer implements DataBuffer {
     private final long length;
     private long nullCount;
 
+    /**
+     * Constructs a {@link ChunkedBuffer} over an ordered list of chunks, automatically flattening
+     * any nested {@link ChunkedBuffer} instances and omitting empty 0-length chunks.
+     *
+     * @param arena     the governing memory arena
+     * @param name      the column name
+     * @param type      the logical {@link DataType} shared by all chunks
+     * @param rawChunks the ordered list of chunks
+     * @throws IllegalArgumentException if any chunk has a mismatched {@link DataType}
+     */
     public ChunkedBuffer(Arena arena, String name, DataType type, List<? extends DataBuffer> rawChunks) {
         this.arena = Objects.requireNonNull(arena, "Arena cannot be null");
         this.name = Objects.requireNonNull(name, "Column name cannot be null");
@@ -67,6 +77,9 @@ public final class ChunkedBuffer implements DataBuffer {
     /**
      * Creates a {@link ChunkedBuffer} from one or more existing {@link DataBuffer} chunks,
      * inferring the column name, type, and arena from the first chunk.
+     *
+     * @param chunks the non-empty array of chunks
+     * @return a new {@link ChunkedBuffer}
      */
     public static ChunkedBuffer of(DataBuffer... chunks) {
         Objects.requireNonNull(chunks, "Chunks array cannot be null");
@@ -79,6 +92,9 @@ public final class ChunkedBuffer implements DataBuffer {
 
     /**
      * Returns a new {@link ChunkedBuffer} with {@code nextChunk} appended in O(C) metadata time (zero data copy).
+     *
+     * @param nextChunk the chunk to append
+     * @return a new {@link ChunkedBuffer} including {@code nextChunk}
      */
     public ChunkedBuffer appendChunk(DataBuffer nextChunk) {
         Objects.requireNonNull(nextChunk, "nextChunk cannot be null");
@@ -99,6 +115,9 @@ public final class ChunkedBuffer implements DataBuffer {
     /**
      * Coalesces all chunks into a single contiguous {@link DataBuffer} allocated in {@code targetArena}.
      * If this buffer already consists of a single unsliced chunk in {@code targetArena}, returns it with zero copy.
+     *
+     * @param targetArena the arena in which to allocate the compacted buffer
+     * @return a single contiguous {@link DataBuffer}
      */
     public DataBuffer compact(Arena targetArena) {
         Objects.requireNonNull(targetArena, "targetArena cannot be null");
@@ -111,14 +130,30 @@ public final class ChunkedBuffer implements DataBuffer {
         return toBuilder(targetArena).build();
     }
 
+    /**
+     * Returns the number of physical chunks in this buffer.
+     *
+     * @return the chunk count
+     */
     public int chunkCount() {
         return chunks.size();
     }
 
+    /**
+     * Returns the physical chunk at the specified zero-based chunk index.
+     *
+     * @param chunkIndex the zero-based chunk index
+     * @return the chunk {@link DataBuffer}
+     */
     public DataBuffer chunk(int chunkIndex) {
         return chunks.get(chunkIndex);
     }
 
+    /**
+     * Returns an unmodifiable list of the physical chunks backing this buffer.
+     *
+     * @return the list of chunks
+     */
     public List<DataBuffer> chunks() {
         return chunks;
     }
@@ -132,6 +167,12 @@ public final class ChunkedBuffer implements DataBuffer {
         return pos >= 0 ? pos : (-pos - 2);
     }
 
+    /**
+     * Reads the 32-bit integer at the given logical row index via O(log C) chunk resolution.
+     *
+     * @param index the zero-based logical index
+     * @return the {@code int} value at {@code index}
+     */
     public int getInt(long index) {
         if (type != DataType.INT32) throw new IllegalStateException("Buffer is not INT32, is " + type);
         int c = locateChunk(index);
@@ -143,6 +184,12 @@ public final class ChunkedBuffer implements DataBuffer {
         };
     }
 
+    /**
+     * Reads the 64-bit integer at the given logical row index via O(log C) chunk resolution.
+     *
+     * @param index the zero-based logical index
+     * @return the {@code long} value at {@code index}
+     */
     public long getLong(long index) {
         if (type != DataType.INT64 && type != DataType.TIMESTAMP_MS && type != DataType.TIMESTAMP_US) {
             throw new IllegalStateException("Buffer is not INT64, is " + type);
@@ -156,6 +203,12 @@ public final class ChunkedBuffer implements DataBuffer {
         };
     }
 
+    /**
+     * Reads the 32-bit float at the given logical row index via O(log C) chunk resolution.
+     *
+     * @param index the zero-based logical index
+     * @return the {@code float} value at {@code index}
+     */
     public float getFloat(long index) {
         if (type != DataType.FLOAT32) throw new IllegalStateException("Buffer is not FLOAT32, is " + type);
         int c = locateChunk(index);
@@ -167,6 +220,12 @@ public final class ChunkedBuffer implements DataBuffer {
         };
     }
 
+    /**
+     * Reads the 64-bit double at the given logical row index via O(log C) chunk resolution.
+     *
+     * @param index the zero-based logical index
+     * @return the {@code double} value at {@code index}
+     */
     public double getDouble(long index) {
         if (type != DataType.FLOAT64) throw new IllegalStateException("Buffer is not FLOAT64, is " + type);
         int c = locateChunk(index);
@@ -178,6 +237,12 @@ public final class ChunkedBuffer implements DataBuffer {
         };
     }
 
+    /**
+     * Reads the boolean value at the given logical row index via O(log C) chunk resolution.
+     *
+     * @param index the zero-based logical index
+     * @return the {@code boolean} value at {@code index}
+     */
     public boolean getBoolean(long index) {
         if (type != DataType.BOOLEAN) throw new IllegalStateException("Buffer is not BOOLEAN, is " + type);
         int c = locateChunk(index);
@@ -189,6 +254,12 @@ public final class ChunkedBuffer implements DataBuffer {
         };
     }
 
+    /**
+     * Reads the decoded UTF-8 {@link String} at the given logical row index via O(log C) chunk resolution.
+     *
+     * @param index the zero-based logical index
+     * @return the decoded {@link String}, or {@code null} if the slot is null
+     */
     public String getString(long index) {
         if (type != DataType.UTF8 && type != DataType.DICTIONARY) {
             throw new IllegalStateException("Buffer is not UTF8 or DICTIONARY, is " + type);
@@ -338,7 +409,7 @@ public final class ChunkedBuffer implements DataBuffer {
                 }
                 yield out;
             }
-            case INT64 -> {
+            case INT64, TIMESTAMP_MS, TIMESTAMP_US -> {
                 Int64Buffer out = Int64Buffer.allocate(targetArena, this.name, outLen);
                 for (long i = 0; i < outLen; i++) {
                     if (idxHasNulls && indices.isNull(i)) out.setNull(i);
@@ -401,7 +472,7 @@ public final class ChunkedBuffer implements DataBuffer {
                 for (DataBuffer c : chunks) b.appendImportedBlock(c, 0, c.length());
                 yield b;
             }
-            case INT64 -> {
+            case INT64, TIMESTAMP_MS, TIMESTAMP_US -> {
                 Int64BufferBuilder b = new Int64BufferBuilder(targetArena, this.name, this.length);
                 for (DataBuffer c : chunks) b.appendImportedBlock(c, 0, c.length());
                 yield b;

@@ -9,20 +9,42 @@ import java.lang.foreign.ValueLayout;
 import java.util.Objects;
 
 /**
- * The foundational skeletal implementation for all contiguous physical DataBuffers.
- * Manages common metadata, bounds checking, and 64-bit word-accelerated validity bitmap operations.
+ * The foundational skeletal implementation for all contiguous physical {@link DataBuffer}s.
+ * Manages common column metadata, bounds checking, and 64-bit word-accelerated validity bitmap operations.
  */
 public abstract sealed class AbstractDataBuffer implements DataBuffer permits
         BooleanBuffer, Int32Buffer, Int64Buffer, Float32Buffer, Float64Buffer,
         UTF8Buffer, DictionaryBuffer, ImportedDataBuffer {
 
+    /** The column name of this buffer. */
     protected final String name;
+
+    /** The memory arena governing the lifecycle of this buffer's off-heap segments. */
     protected final Arena arena;
+
+    /** The logical number of elements in this buffer or slice. */
     protected final long length;
+
+    /** The starting physical element offset within the backing segments. */
     protected final long offset;
+
+    /** The off-heap validity bitmap segment (or {@link MemorySegment#NULL} if elided). */
     protected final MemorySegment validityBitmap;
+
+    /** Cached null count within {@code [offset, offset + length)}, or {@code -1} if not yet computed. */
     protected long nullCount = -1;
 
+    /**
+     * Constructs a contiguous physical {@link AbstractDataBuffer}.
+     *
+     * @param name           the non-null column name
+     * @param arena          the governing memory arena
+     * @param length         the logical element count (must be {@code >= 0})
+     * @param offset         the starting physical element offset (must be {@code >= 0})
+     * @param validityBitmap the validity bitmap segment (or {@link MemorySegment#NULL})
+     * @throws NullPointerException     if {@code name}, {@code arena}, or {@code validityBitmap} is {@code null}
+     * @throws IllegalArgumentException if {@code length < 0} or {@code offset < 0}
+     */
     protected AbstractDataBuffer(String name, Arena arena, long length, long offset, MemorySegment validityBitmap) {
         this.name = Objects.requireNonNull(name, "Column name cannot be null");
         this.arena = Objects.requireNonNull(arena, "Arena cannot be null");
@@ -40,10 +62,22 @@ public abstract sealed class AbstractDataBuffer implements DataBuffer permits
         }
     }
 
+    /**
+     * Returns {@code true} if this buffer was imported without a physical validity bitmap
+     * (indicating all elements are valid per the Apache Arrow specification).
+     *
+     * @return {@code true} if no physical validity bitmap is present
+     */
     protected final boolean lacksValidityBitmap() {
         return validityBitmap.equals(MemorySegment.NULL) || validityBitmap.byteSize() == 0;
     }
 
+    /**
+     * Validates that {@code index} lies within {@code [0, length)}.
+     *
+     * @param index the logical element index to check
+     * @throws IndexOutOfBoundsException if {@code index < 0 || index >= length}
+     */
     protected final void checkBounds(long index) {
         Objects.checkIndex(index, this.length);
     }
@@ -108,7 +142,10 @@ public abstract sealed class AbstractDataBuffer implements DataBuffer permits
 
     /**
      * Marks the logical index as valid (non-null) in O(1) time.
-     * Skips the off-heap memory write if the bit is already set to 1.
+     * Skips the off-heap memory write if the bit is already set to {@code 1}.
+     *
+     * @param index the zero-based logical index to mark valid
+     * @throws IndexOutOfBoundsException if {@code index < 0 || index >= length()}
      */
     public void setValid(long index) {
         checkBounds(index);

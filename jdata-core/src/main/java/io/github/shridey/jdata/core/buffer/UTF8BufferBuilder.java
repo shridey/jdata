@@ -8,6 +8,9 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Objects;
 
+/**
+ * Dynamically builds an off-heap variable-width {@link UTF8Buffer}.
+ */
 public final class UTF8BufferBuilder extends AbstractBufferBuilder {
 
     private MemorySegment offsetsBuffer;
@@ -16,6 +19,25 @@ public final class UTF8BufferBuilder extends AbstractBufferBuilder {
     private long dataCapacity;
     private int currentDataOffset = 0;
 
+    /**
+     * Creates a new {@link UTF8BufferBuilder} with a default initial byte capacity of {@code 16} bytes per row.
+     *
+     * @param arena                  the memory arena governing allocations
+     * @param name                   the column name
+     * @param initialLogicalCapacity the initial logical row capacity
+     */
+    public UTF8BufferBuilder(Arena arena, String name, long initialLogicalCapacity) {
+        this(arena, name, initialLogicalCapacity, Math.min(Math.max(initialLogicalCapacity, 4L) * 16L, Integer.MAX_VALUE));
+    }
+
+    /**
+     * Creates a new {@link UTF8BufferBuilder} with explicit row and byte capacities.
+     *
+     * @param arena                  the memory arena governing allocations
+     * @param name                   the column name
+     * @param initialLogicalCapacity the initial logical row capacity
+     * @param initialDataCapacity    the initial UTF-8 byte payload capacity (in {@code [0, Integer.MAX_VALUE]})
+     */
     public UTF8BufferBuilder(Arena arena, String name, long initialLogicalCapacity, long initialDataCapacity) {
         super(arena, name, initialLogicalCapacity);
         if (initialDataCapacity < 0 || initialDataCapacity > Integer.MAX_VALUE) {
@@ -59,6 +81,12 @@ public final class UTF8BufferBuilder extends AbstractBufferBuilder {
         }
     }
 
+    /**
+     * Appends a single UTF-8 string value (or marks the slot null if {@code value == null}).
+     *
+     * @param value the string value to append (may be {@code null})
+     * @return this builder
+     */
     public UTF8BufferBuilder append(String value) {
         if (value == null) return appendNull();
 
@@ -73,6 +101,11 @@ public final class UTF8BufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
+    /**
+     * Appends a single null entry.
+     *
+     * @return this builder
+     */
     public UTF8BufferBuilder appendNull() {
         ensureLogicalCapacity(1);
         markCurrentNull();
@@ -82,6 +115,12 @@ public final class UTF8BufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
+    /**
+     * Bulk-appends an array of strings, pre-sizing the UTF-8 byte buffer in a single pass.
+     *
+     * @param values the array of strings to append
+     * @return this builder
+     */
     public UTF8BufferBuilder appendAll(String[] values) {
         Objects.requireNonNull(values, "Values array cannot be null");
         if (values.length == 0) return this;
@@ -102,10 +141,26 @@ public final class UTF8BufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
+    /**
+     * Appends a contiguous range of strings from an existing {@link UTF8Buffer}.
+     *
+     * @param source   the source buffer
+     * @param srcIndex the starting logical index in {@code source}
+     * @param length   the number of elements to append
+     * @return this builder
+     */
     public UTF8BufferBuilder appendBlock(UTF8Buffer source, long srcIndex, long length) {
         return appendImportedBlock(source, srcIndex, length);
     }
 
+    /**
+     * Appends a range of strings from any {@link DataBuffer} of type {@link DataType#UTF8}.
+     *
+     * @param source   the source buffer
+     * @param srcIndex the starting logical index in {@code source}
+     * @param length   the number of elements to append
+     * @return this builder
+     */
     public UTF8BufferBuilder appendImportedBlock(DataBuffer source, long srcIndex, long length) {
         Objects.requireNonNull(source, "Source buffer cannot be null");
         if (source.type() != DataType.UTF8) {
@@ -190,7 +245,7 @@ public final class UTF8BufferBuilder extends AbstractBufferBuilder {
     public UTF8Buffer build() {
         long paddedValidityBytes = ArrowMemoryAllocator.padTo64((logicalLength + 7L) >>> 3);
         long paddedOffsetsBytes = ArrowMemoryAllocator.padTo64((logicalLength + 1L) * ValueLayout.JAVA_INT.byteSize());
-        long paddedDataBytes = ArrowMemoryAllocator.padTo64(currentDataOffset == 0 ? 64L : currentDataOffset);
+        long paddedDataBytes = ArrowMemoryAllocator.padTo64(currentDataOffset);
 
         MemorySegment sealedValidity = validityBitmap.asSlice(0, paddedValidityBytes);
         MemorySegment sealedOffsets = offsetsBuffer.asSlice(0, paddedOffsetsBytes);

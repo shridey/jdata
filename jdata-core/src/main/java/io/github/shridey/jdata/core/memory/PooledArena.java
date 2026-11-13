@@ -1,4 +1,4 @@
-package io.github.shridey.jdata.core;
+package io.github.shridey.jdata.core.memory;
 
 import io.github.shridey.jdata.core.internal.ArrowMemoryAllocator;
 
@@ -10,6 +10,7 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * A high-performance {@link Arena} implementation that sub-allocates 64-byte-aligned
@@ -37,6 +38,16 @@ public final class PooledArena implements Arena {
         this.checkoutArena = shared ? Arena.ofShared() : Arena.ofConfined();
     }
 
+    /**
+     * Sub-allocates a 64-byte-padded off-heap {@link MemorySegment} from this arena's active slab
+     * (or from a dedicated OS allocation if the request exceeds the pool's slab size).
+     *
+     * @param byteSize      the logical byte size to allocate (must be {@code >= 0})
+     * @param byteAlignment the required byte alignment (must be a positive power of two)
+     * @return a zero-initialized, aligned {@link MemorySegment}
+     * @throws IllegalArgumentException if {@code byteSize < 0} or {@code byteAlignment} is not a positive power of two
+     * @throws IllegalStateException    if this arena is already closed
+     */
     @Override
     public MemorySegment allocate(long byteSize, long byteAlignment) {
         if (byteSize < 0) {
@@ -63,9 +74,14 @@ public final class PooledArena implements Arena {
         // 1. Humongous allocation (> 1 slab): allocate in a dedicated Arena so it can be freed immediately if resized
         if (paddedSize > pool.slabByteSize()) {
             Arena humongousArena = shared ? Arena.ofShared() : Arena.ofConfined();
-            MemorySegment segment = humongousArena.allocate(paddedSize, effectiveAlignment);
-            humongousArenas.put(segment.address(), humongousArena);
-            return segment;
+            try {
+                MemorySegment segment = humongousArena.allocate(paddedSize, effectiveAlignment);
+                humongousArenas.put(segment.address(), humongousArena);
+                return segment;
+            } catch (Throwable t) {
+                humongousArena.close();
+                throw t;
+            }
         }
 
         // 2. Check intra-arena free list for a recycled power-of-two block from an earlier builder resize
@@ -96,14 +112,28 @@ public final class PooledArena implements Arena {
     /**
      * Reallocates a builder buffer: expands in-place if it sits at the tip of the active slab,
      * or allocates a new block, copies live bytes, and recycles/frees the old block immediately.
+     *
+     * @param current       the existing segment to expand
+     * @param bytesToCopy   the number of valid prefix bytes to preserve
+     * @param newPaddedSize the requested new capacity in bytes
+     * @return the expanded or relocated {@link MemorySegment}
      */
     public MemorySegment reallocate(MemorySegment current, long bytesToCopy, long newPaddedSize) {
+        Objects.requireNonNull(current, "current segment cannot be null.");
+        if (bytesToCopy < 0) {
+            throw new IllegalArgumentException("bytesToCopy cannot be negative: " + bytesToCopy);
+        }
+        long targetPaddedSize = ArrowMemoryAllocator.padTo64(newPaddedSize);
+        if (targetPaddedSize <= current.byteSize()) {
+            return current;
+        }
+
         if (shared) {
             synchronized (this) {
-                return reallocateInternal(current, bytesToCopy, newPaddedSize);
+                return reallocateInternal(current, bytesToCopy, targetPaddedSize);
             }
         }
-        return reallocateInternal(current, bytesToCopy, newPaddedSize);
+        return reallocateInternal(current, bytesToCopy, targetPaddedSize);
     }
 
     private MemorySegment reallocateInternal(MemorySegment current, long bytesToCopy, long newPaddedSize) {
@@ -122,11 +152,11 @@ public final class PooledArena implements Arena {
             MemorySegment.copy(current, 0, next, 0, safeCopyBytes);
         }
 
-        recycleOldSegment(current, safeCopyBytes);
+        recycleOldSegment(current);
         return next;
     }
 
-    private void recycleOldSegment(MemorySegment oldSegment, long dirtyBytes) {
+    private void recycleOldSegment(MemorySegment oldSegment) {
         // If the old segment was a humongous allocation (> 1 slab), close its dedicated Arena to free OS RAM immediately
         Arena humongousArena = humongousArenas.remove(oldSegment.address());
         if (humongousArena != null) {
@@ -134,10 +164,8 @@ public final class PooledArena implements Arena {
             return;
         }
 
-        // Otherwise it is a slab slice: zero out its dirty prefix and cache it for reuse by other builders
-        if (dirtyBytes > 0) {
-            oldSegment.asSlice(0, dirtyBytes).fill((byte) 0);
-        }
+        // Otherwise it is a slab slice: zero out the block completely and cache it for reuse by other builders
+        oldSegment.fill((byte) 0);
         freeBlocks.computeIfAbsent(oldSegment.byteSize(), _ -> new ArrayDeque<>(4))
                 .offerFirst(oldSegment);
     }
@@ -159,6 +187,8 @@ public final class PooledArena implements Arena {
 
     /**
      * Returns the number of recycled blocks currently available for immediate reuse in this arena.
+     *
+     * @return the count of cached free blocks in this arena
      */
     public int recycledBlockCount() {
         if (shared) {
@@ -170,7 +200,9 @@ public final class PooledArena implements Arena {
     }
 
     /**
-     * Returns the number of active humongous allocations (> slab size) currently open in this arena.
+     * Returns the number of active humongous allocations ({@code >} slab size) currently open in this arena.
+     *
+     * @return the active humongous allocation count
      */
     public int activeHumongousCount() {
         if (shared) {
@@ -179,6 +211,15 @@ public final class PooledArena implements Arena {
             }
         }
         return humongousArenas.size();
+    }
+
+    /**
+     * Returns {@code true} if this arena is thread-safe (shared), or {@code false} if thread-confined.
+     *
+     * @return {@code true} if shared, {@code false} if confined
+     */
+    public boolean isShared() {
+        return shared;
     }
 
     private void advanceToNewSlab() {
@@ -197,11 +238,20 @@ public final class PooledArena implements Arena {
         }
     }
 
+    /**
+     * Returns the {@link MemorySegment.Scope} governing the lifetime of segments allocated by this arena.
+     *
+     * @return the arena scope
+     */
     @Override
     public MemorySegment.Scope scope() {
         return checkoutArena.scope();
     }
 
+    /**
+     * Closes this arena, immediately invalidating all issued {@link MemorySegment} views,
+     * freeing any humongous OS allocations, and returning all checked-out slabs to the parent {@link ArrowMemoryPool}.
+     */
     @Override
     public void close() {
         if (shared) {

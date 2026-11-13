@@ -43,7 +43,6 @@ class ChunkedBufferTest {
                 assertEquals((idx + 1) * 10, chunkedInt.getInt(idx));
             }
 
-            // Verify passing a multi-chunk ChunkedBuffer directly into BufferBuilder.appendImportedBlock
             Int32Buffer appendedFromChunked = new Int32BufferBuilder(arena, "from_chunked", 4)
                     .appendImportedBlock(chunkedInt, 2, 5)
                     .build();
@@ -117,12 +116,17 @@ class ChunkedBufferTest {
     @Test
     void testChunkedBufferBuilderAutoRolloverForAllTypesAndUtf8ByteLimits() {
         try (Arena arena = Arena.ofConfined()) {
-            // 1. Default constructor check
             ChunkedBufferBuilder defaultBuilder = new ChunkedBufferBuilder(arena, "def", DataType.INT32);
+            assertEquals("def", defaultBuilder.name());
+            assertEquals(DataType.INT32, defaultBuilder.type());
             assertEquals(ChunkedBufferBuilder.DEFAULT_MAX_CHUNK_ROWS, defaultBuilder.maxChunkRows());
             assertEquals(ChunkedBufferBuilder.DEFAULT_MAX_UTF8_CHUNK_BYTES, defaultBuilder.maxUtf8ChunkBytes());
 
-            // 2. Row-limit rollover across Int32, Int64, Float32, Float64, Boolean, and Dictionary
+            // Chain flushChunk() explicitly to verify manual chunk boundary flushing
+            ChunkedBuffer manuallyFlushed = defaultBuilder.append(10).flushChunk().append(20).build();
+            assertEquals(2, manuallyFlushed.chunkCount());
+            assertEquals(20, manuallyFlushed.getInt(1));
+
             ChunkedBuffer i32Chunked = new ChunkedBufferBuilder(arena, "i32", DataType.INT32, 3)
                     .append(1)
                     .appendAll(new int[]{2, 3, 4, 5, 6, 7})
@@ -161,7 +165,6 @@ class ChunkedBufferTest {
             assertEquals(2, boolChunked.chunkCount());
             assertTrue(boolChunked.getBoolean(2));
 
-            // 3. UTF-8 byte-limit rollover (cap each chunk at 10 UTF-8 bytes even when maxChunkRows = 100)
             ChunkedBufferBuilder utf8Stream = new ChunkedBufferBuilder(arena, "utf8_stream", DataType.UTF8, 100, 10);
             utf8Stream.appendAll(new String[]{"123456", "7890", "ABCD", "EFGHIJ"});
             UTF8Buffer blockSrc = UTF8Buffer.allocate(arena, "src", new String[]{"12345", "67890", "XYZ"});
@@ -169,10 +172,6 @@ class ChunkedBufferTest {
             assertEquals(7L, utf8Stream.length());
 
             ChunkedBuffer utf8Chunked = utf8Stream.build();
-            // Chunk 0: "123456" + "7890" (10B)
-            // Chunk 1: "ABCD" + "EFGHIJ" (10B)
-            // Chunk 2: "12345" + "67890" (10B)
-            // Chunk 3: "XYZ" (3B)
             assertEquals(4, utf8Chunked.chunkCount());
             assertEquals("123456", utf8Chunked.getString(0));
             assertEquals("EFGHIJ", utf8Chunked.getString(3));
@@ -245,7 +244,6 @@ class ChunkedBufferTest {
             assertEquals("AMER", impReg.getString(2));
             assertTrue(impReg.isNull(4));
 
-            // Also verify exporting an empty 0-row sliced chunked Table with a DICTIONARY column over FFI
             Table emptySliced = concatenated.slice(0, 0);
             MemorySegment emptyArr = ArrowCExporter.exportTableArray(emptySliced, arena);
             MemorySegment emptySch = ArrowCExporter.exportTableSchema(emptySliced, arena);

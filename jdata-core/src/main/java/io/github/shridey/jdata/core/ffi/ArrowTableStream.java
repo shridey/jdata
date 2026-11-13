@@ -12,6 +12,7 @@ import io.github.shridey.jdata.core.internal.ArrowCStructs;
 import io.github.shridey.jdata.core.layout.Field;
 import io.github.shridey.jdata.core.layout.Schema;
 import io.github.shridey.jdata.core.layout.Table;
+import io.github.shridey.jdata.core.memory.PooledArena;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -23,7 +24,7 @@ import java.util.Objects;
 /**
  * A consumer over an Apache Arrow C Stream Interface ({@code ArrowArrayStream}).
  * Pulls columnar {@link Table} batches on demand, allowing each batch to bind to its own
- * short-lived {@link Arena} (such as a {@link io.github.shridey.jdata.core.PooledArena})
+ * short-lived {@link Arena} (such as a {@link PooledArena})
  * so datasets larger than RAM can be processed with bounded memory.
  */
 public final class ArrowTableStream implements AutoCloseable {
@@ -44,6 +45,8 @@ public final class ArrowTableStream implements AutoCloseable {
 
     /**
      * Returns the {@link Schema} shared by all batches in this stream.
+     *
+     * @return the stream {@link Schema}
      */
     public Schema schema() {
         return schema;
@@ -52,8 +55,9 @@ public final class ArrowTableStream implements AutoCloseable {
     /**
      * Pulls the next {@link Table} batch from the stream and binds its off-heap buffers to {@code batchArena}.
      *
-     * @param batchArena The arena that controls the lifecycle of the returned batch.
-     * @return The next {@link Table} batch, or {@code null} if the stream has reached the end.
+     * @param batchArena the arena that controls the lifecycle of the returned batch
+     * @return the next {@link Table} batch, or {@code null} if the stream has reached the end
+     * @throws IllegalStateException if the stream is already closed or the native producer reports an error
      */
     public Table nextBatch(Arena batchArena) {
         Objects.requireNonNull(batchArena, "batchArena cannot be null");
@@ -91,6 +95,9 @@ public final class ArrowTableStream implements AutoCloseable {
 
     /**
      * Pulls the next {@link Table} batch using the stream's own arena.
+     *
+     * @return the next {@link Table} batch, or {@code null} if the stream has reached the end
+     * @throws IllegalStateException if the stream is already closed or the native producer reports an error
      */
     public Table nextBatch() {
         return nextBatch(streamArena);
@@ -99,6 +106,9 @@ public final class ArrowTableStream implements AutoCloseable {
     /**
      * Reads all remaining batches from the stream into {@code targetArena} and concatenates
      * them in O(1) zero-copy into a single unified {@link Table}.
+     *
+     * @param targetArena the arena to which all batch buffers will be bound
+     * @return a unified {@link Table} containing all remaining rows from the stream
      */
     public Table readAll(Arena targetArena) {
         Objects.requireNonNull(targetArena, "targetArena cannot be null");
@@ -117,6 +127,8 @@ public final class ArrowTableStream implements AutoCloseable {
 
     /**
      * Queries {@code get_last_error} on the underlying native stream, or returns {@code null} if none.
+     *
+     * @return the last error message reported by the native stream, or {@code null}
      */
     public String lastError() {
         if (closed) {
@@ -139,6 +151,11 @@ public final class ArrowTableStream implements AutoCloseable {
         }
     }
 
+    /**
+     * Returns {@code true} if this stream has been closed or its underlying native struct has been released.
+     *
+     * @return {@code true} if closed, {@code false} otherwise
+     */
     public boolean isClosed() {
         return closed || streamStruct.get(ValueLayout.ADDRESS, ArrowCStructs.STREAM_OFFSET_RELEASE).equals(MemorySegment.NULL);
     }
@@ -149,6 +166,10 @@ public final class ArrowTableStream implements AutoCloseable {
         }
     }
 
+    /**
+     * Closes this stream consumer and invokes the native {@code release} callbacks on both
+     * the held {@code ArrowSchema} and the {@code ArrowArrayStream}.
+     */
     @Override
     public void close() {
         if (!closed) {

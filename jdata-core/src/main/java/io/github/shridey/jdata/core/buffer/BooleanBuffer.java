@@ -7,6 +7,10 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Objects;
 
+/**
+ * A contiguous off-heap Apache Arrow {@link DataType#BOOLEAN} column backed by LSB-0 bit-packed
+ * validity and data bitmaps (8 boolean values per byte).
+ */
 public final class BooleanBuffer extends AbstractDataBuffer {
 
     private final MemorySegment dataBuffer;
@@ -16,6 +20,14 @@ public final class BooleanBuffer extends AbstractDataBuffer {
         this.dataBuffer = dataBuffer;
     }
 
+    /**
+     * Allocates a new 64-byte-aligned and 64-byte tail-padded {@link BooleanBuffer} initialized to {@code false} and valid.
+     *
+     * @param arena  the arena governing the off-heap allocation
+     * @param name   the column name
+     * @param length the number of boolean elements to allocate
+     * @return a newly allocated {@link BooleanBuffer}
+     */
     public static BooleanBuffer allocate(Arena arena, String name, long length) {
         Objects.requireNonNull(arena, "Arena cannot be null");
         Objects.requireNonNull(name, "Column name cannot be null");
@@ -34,6 +46,14 @@ public final class BooleanBuffer extends AbstractDataBuffer {
 
     /**
      * Zero-copy wraps pre-allocated or memory-mapped validity and bit-packed data segments.
+     *
+     * @param name           the column name
+     * @param arena          the governing arena
+     * @param length         the logical element count
+     * @param offset         the starting physical bit offset
+     * @param validityBitmap the validity bitmap segment (or {@link MemorySegment#NULL})
+     * @param dataBuffer     the bit-packed boolean data segment
+     * @return a wrapped {@link BooleanBuffer}
      */
     public static BooleanBuffer wrap(String name, Arena arena, long length, long offset,
                                      MemorySegment validityBitmap, MemorySegment dataBuffer) {
@@ -43,6 +63,13 @@ public final class BooleanBuffer extends AbstractDataBuffer {
         return new BooleanBuffer(name, arena, length, offset, validityBitmap, dataBuffer);
     }
 
+    /**
+     * Reads the boolean value at the specified logical index.
+     *
+     * @param index the zero-based logical index
+     * @return the boolean value at {@code index}
+     * @throws IndexOutOfBoundsException if {@code index < 0 || index >= length()}
+     */
     public boolean get(long index) {
         checkBounds(index);
         long physicalIndex = index + this.offset;
@@ -53,6 +80,13 @@ public final class BooleanBuffer extends AbstractDataBuffer {
         return ((b >>> bitIndex) & 1) != 0;
     }
 
+    /**
+     * Writes a boolean value at the specified logical index and marks the slot valid.
+     *
+     * @param index the zero-based logical index
+     * @param value the boolean value to write
+     * @throws IndexOutOfBoundsException if {@code index < 0 || index >= length()}
+     */
     public void set(long index, boolean value) {
         checkBounds(index);
         long physicalIndex = index + this.offset;
@@ -69,6 +103,12 @@ public final class BooleanBuffer extends AbstractDataBuffer {
         setValid(index);
     }
 
+    /**
+     * Bulk-packs a Java {@code boolean[]} into this buffer starting at logical index {@code 0}.
+     *
+     * @param source the source array to copy from
+     * @throws IndexOutOfBoundsException if {@code source.length > length()}
+     */
     public void copyFrom(boolean[] source) {
         Objects.requireNonNull(source, "Source array cannot be null");
         if (source.length > this.length) {
@@ -122,6 +162,14 @@ public final class BooleanBuffer extends AbstractDataBuffer {
         }
     }
 
+    /**
+     * Copies a range of elements and their validity bits from {@code source} into this buffer.
+     *
+     * @param source    the source {@link BooleanBuffer}
+     * @param srcIndex  the starting logical index in {@code source}
+     * @param destIndex the starting logical index in this buffer
+     * @param length    the number of elements to copy
+     */
     public void copyBlock(BooleanBuffer source, long srcIndex, long destIndex, long length) {
         Objects.requireNonNull(source, "Source buffer cannot be null");
         Objects.checkFromIndexSize(srcIndex, length, source.length);
@@ -157,6 +205,11 @@ public final class BooleanBuffer extends AbstractDataBuffer {
         }
     }
 
+    /**
+     * Materializes the boolean values of this buffer into a newly allocated Java {@code boolean[]}.
+     *
+     * @return a Java {@code boolean[]} containing this buffer's values
+     */
     public boolean[] toArray() {
         if (this.length > Integer.MAX_VALUE) {
             throw new IllegalStateException("Buffer length is too large to fit in a Java array.");

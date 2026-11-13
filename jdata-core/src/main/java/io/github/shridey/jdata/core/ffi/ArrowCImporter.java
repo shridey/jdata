@@ -17,6 +17,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
+/**
+ * Imports native Apache Arrow C Data Interface ({@code ArrowArray}, {@code ArrowSchema}) and
+ * Apache Arrow C Stream Interface ({@code ArrowArrayStream}) structs into {@link Table},
+ * {@link ImportedDataBuffer}, and {@link ArrowTableStream} instances bound to a Java {@link Arena}.
+ */
 public final class ArrowCImporter {
 
     private ArrowCImporter() {}
@@ -38,7 +43,12 @@ public final class ArrowCImporter {
     );
 
     /**
-     * Imports a foreign {@code ArrowArrayStream} into a pull-based {@link ArrowTableStream}.
+     * Imports a foreign {@code ArrowArrayStream} C struct into a pull-based {@link ArrowTableStream}.
+     *
+     * @param streamPtr   pointer to the native {@code ArrowArrayStream} struct
+     * @param streamArena the arena governing the stream's lifecycle
+     * @return a pull-based {@link ArrowTableStream} consumer
+     * @throws IllegalStateException if the stream is already released or {@code get_schema} fails
      */
     public static ArrowTableStream importTableStream(MemorySegment streamPtr, Arena streamArena) {
         Objects.requireNonNull(streamPtr, "streamPtr cannot be null");
@@ -62,10 +72,12 @@ public final class ArrowCImporter {
         try {
             errCode = (int) STREAM_GET_SCHEMA_CALL.invokeExact(getSchemaPtr, boundStream, rawSchema);
         } catch (Throwable t) {
+            releaseStreamIfPresent(boundStream);
             throw new RuntimeException("Failed to invoke native ArrowArrayStream.get_schema callback", t);
         }
 
         if (errCode != 0) {
+            releaseStreamIfPresent(boundStream);
             throw new IllegalStateException("ArrowArrayStream.get_schema failed with error code: " + errCode);
         }
 
@@ -85,6 +97,18 @@ public final class ArrowCImporter {
         }
     }
 
+    /**
+     * Imports a foreign top-level Struct ({@code +s}) {@code ArrowArray} and {@code ArrowSchema} pair
+     * into a zero-copy {@link Table} bound to {@code arena}. Immediately releases the consumed
+     * {@code ArrowSchema} struct and registers the {@code ArrowArray} release callback on {@code arena}.
+     *
+     * @param arrayPtr  pointer to the native {@code ArrowArray} struct
+     * @param schemaPtr pointer to the native {@code ArrowSchema} struct
+     * @param arena     the arena governing the imported table's off-heap memory lifecycle
+     * @return the imported zero-copy {@link Table}
+     * @throws IllegalStateException    if either struct is already released or child counts mismatch
+     * @throws IllegalArgumentException if the top-level schema format is not {@code "+s"}
+     */
     public static Table importTable(MemorySegment arrayPtr, MemorySegment schemaPtr, Arena arena) {
         Objects.requireNonNull(arrayPtr, "arrayPtr cannot be null");
         Objects.requireNonNull(schemaPtr, "schemaPtr cannot be null");
@@ -184,6 +208,17 @@ public final class ArrowCImporter {
         return new Table(parsedSchema, columns);
     }
 
+    /**
+     * Imports a single foreign column {@code ArrowArray} and {@code ArrowSchema} pair into an
+     * {@link ImportedDataBuffer} bound to {@code arena}. Immediately releases the consumed
+     * {@code ArrowSchema} struct and registers the {@code ArrowArray} release callback on {@code arena}.
+     *
+     * @param arrayPtr  pointer to the native {@code ArrowArray} struct
+     * @param schemaPtr pointer to the native {@code ArrowSchema} struct
+     * @param arena     the arena governing the imported buffer's off-heap memory lifecycle
+     * @return the imported zero-copy {@link ImportedDataBuffer}
+     * @throws IllegalStateException if either struct is already released
+     */
     public static ImportedDataBuffer importBuffer(MemorySegment arrayPtr, MemorySegment schemaPtr, Arena arena) {
         Objects.requireNonNull(arrayPtr, "arrayPtr cannot be null");
         Objects.requireNonNull(schemaPtr, "schemaPtr cannot be null");

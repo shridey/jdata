@@ -8,6 +8,11 @@ import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
+/**
+ * A contiguous off-heap Apache Arrow {@link DataType#UTF8} variable-width string column
+ * backed by a validity bitmap ({@code buffer(0)}), 32-bit signed byte offsets ({@code buffer(1)}),
+ * and contiguous UTF-8 payload bytes ({@code buffer(2)}).
+ */
 public final class UTF8Buffer extends AbstractDataBuffer {
 
     private final MemorySegment offsetsBuffer;
@@ -20,6 +25,14 @@ public final class UTF8Buffer extends AbstractDataBuffer {
         this.dataBuffer = dataBuffer;
     }
 
+    /**
+     * Allocates and populates a 64-byte-aligned and tail-padded {@link UTF8Buffer} directly from a Java {@code String[]}.
+     *
+     * @param arena  the arena governing off-heap allocations
+     * @param name   the column name
+     * @param values the array of strings (may contain {@code null} elements)
+     * @return a newly allocated {@link UTF8Buffer}
+     */
     public static UTF8Buffer allocate(Arena arena, String name, String[] values) {
         Objects.requireNonNull(arena, "Arena cannot be null");
         Objects.requireNonNull(name, "Column name cannot be null");
@@ -59,6 +72,15 @@ public final class UTF8Buffer extends AbstractDataBuffer {
 
     /**
      * Zero-copy wraps pre-allocated or memory-mapped validity, 32-bit offsets, and UTF-8 byte segments.
+     *
+     * @param name           the column name
+     * @param arena          the governing arena
+     * @param length         the logical element count
+     * @param offset         the starting physical element offset
+     * @param validityBitmap the validity bitmap segment (or {@link MemorySegment#NULL})
+     * @param offsetsBuffer  the {@code (length + offset + 1) * 4}-byte signed 32-bit offsets segment
+     * @param dataBuffer     the contiguous UTF-8 byte payload segment
+     * @return a wrapped {@link UTF8Buffer}
      */
     public static UTF8Buffer wrap(String name, Arena arena, long length, long offset,
                                   MemorySegment validityBitmap, MemorySegment offsetsBuffer, MemorySegment dataBuffer) {
@@ -141,6 +163,13 @@ public final class UTF8Buffer extends AbstractDataBuffer {
         return cursor;
     }
 
+    /**
+     * Decodes and returns the UTF-8 {@link String} at the specified logical index, or {@code null} if null.
+     *
+     * @param index the zero-based logical index
+     * @return the decoded {@link String}, or {@code null} if the slot is null
+     * @throws IndexOutOfBoundsException if {@code index < 0 || index >= length()}
+     */
     public String getString(long index) {
         checkBounds(index);
 
@@ -161,6 +190,11 @@ public final class UTF8Buffer extends AbstractDataBuffer {
         return new String(bytes, StandardCharsets.UTF_8);
     }
 
+    /**
+     * Materializes the elements of this buffer into a newly allocated Java {@code String[]}.
+     *
+     * @return a Java {@code String[]} containing this buffer's strings
+     */
     public String[] toArray() {
         if (this.length > Integer.MAX_VALUE) {
             throw new IllegalStateException("Buffer length is too large to fit in a Java array.");

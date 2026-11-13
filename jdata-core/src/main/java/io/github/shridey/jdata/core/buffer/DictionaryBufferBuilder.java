@@ -15,8 +15,8 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Dynamically builds an Apache Arrow Dictionary-Encoded column (INT32 codes + UTF8 dictionary).
- * Supports both fast heap String deduplication and zero-allocation off-heap UTF8 byte deduplication.
+ * Dynamically builds an Apache Arrow Dictionary-Encoded column ({@code INT32} codes + {@code UTF8} dictionary).
+ * Supports both fast heap {@link String} deduplication and zero-allocation off-heap UTF-8 byte deduplication.
  */
 public final class DictionaryBufferBuilder extends AbstractBufferBuilder {
 
@@ -34,10 +34,25 @@ public final class DictionaryBufferBuilder extends AbstractBufferBuilder {
     // Fast-path cache for heap String references to avoid re-encoding UTF-8 bytes on cache hits
     private final Map<String, Integer> heapCache;
 
+    /**
+     * Creates a new {@link DictionaryBufferBuilder} with a default expected cardinality of 64 unique values.
+     *
+     * @param arena                  the memory arena governing allocations
+     * @param name                   the column name
+     * @param initialLogicalCapacity the initial row capacity
+     */
     public DictionaryBufferBuilder(Arena arena, String name, long initialLogicalCapacity) {
         this(arena, name, initialLogicalCapacity, 64);
     }
 
+    /**
+     * Creates a new {@link DictionaryBufferBuilder} with custom row capacity and expected dictionary cardinality.
+     *
+     * @param arena                  the memory arena governing allocations
+     * @param name                   the column name
+     * @param initialLogicalCapacity the initial row capacity
+     * @param expectedCardinality    the expected number of unique strings in the dictionary
+     */
     public DictionaryBufferBuilder(Arena arena, String name, long initialLogicalCapacity, int expectedCardinality) {
         super(arena, name, initialLogicalCapacity);
         if (expectedCardinality < 0) {
@@ -74,6 +89,13 @@ public final class DictionaryBufferBuilder extends AbstractBufferBuilder {
         );
     }
 
+    /**
+     * Appends a single string value (or marks the slot null if {@code value == null}),
+     * deduplicating it into the underlying dictionary.
+     *
+     * @param value the string value to append (may be {@code null})
+     * @return this builder
+     */
     public DictionaryBufferBuilder append(String value) {
         if (value == null) {
             return appendNull();
@@ -86,6 +108,11 @@ public final class DictionaryBufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
+    /**
+     * Appends a single null entry.
+     *
+     * @return this builder
+     */
     public DictionaryBufferBuilder appendNull() {
         ensureLogicalCapacity(1);
         markCurrentNull();
@@ -94,6 +121,12 @@ public final class DictionaryBufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
+    /**
+     * Bulk-appends an array of strings, deduplicating each non-null value into the dictionary.
+     *
+     * @param values the array of strings to append
+     * @return this builder
+     */
     public DictionaryBufferBuilder appendAll(String[] values) {
         Objects.requireNonNull(values, "Values array cannot be null");
         if (values.length == 0) return this;
@@ -115,8 +148,13 @@ public final class DictionaryBufferBuilder extends AbstractBufferBuilder {
     }
 
     /**
-     * Encodes and appends a range of strings directly from an off-heap UTF8 DataBuffer
+     * Encodes and appends a range of strings directly from an off-heap {@link DataType#UTF8} {@link DataBuffer}
      * without allocating intermediate Java Strings.
+     *
+     * @param source   the source UTF-8 buffer
+     * @param srcIndex the starting logical index in {@code source}
+     * @param length   the number of elements to append
+     * @return this builder
      */
     public DictionaryBufferBuilder appendUTF8Block(DataBuffer source, long srcIndex, long length) {
         Objects.requireNonNull(source, "Source buffer cannot be null");
@@ -158,8 +196,13 @@ public final class DictionaryBufferBuilder extends AbstractBufferBuilder {
     }
 
     /**
-     * Appends a block from an existing {@link DictionaryBuffer}, remapping only the unique
-     * dictionary entries in O(K) time rather than re-hashing every row's string.
+     * Appends a block from an existing {@link DictionaryBuffer}, lazily remapping only the unique
+     * dictionary entries referenced within {@code [srcIndex, srcIndex + length)}.
+     *
+     * @param source   the source dictionary buffer
+     * @param srcIndex the starting logical index in {@code source}
+     * @param length   the number of elements to append
+     * @return this builder
      */
     public DictionaryBufferBuilder appendBlock(DictionaryBuffer source, long srcIndex, long length) {
         return appendImportedBlock(source, srcIndex, length);
@@ -167,7 +210,12 @@ public final class DictionaryBufferBuilder extends AbstractBufferBuilder {
 
     /**
      * Appends a block from a {@link DataBuffer} of type {@link DataType#DICTIONARY} or {@link DataType#UTF8}.
-     * Lazily remaps only the dictionary entries actually referenced within [srcIndex, srcIndex + length).
+     * Lazily remaps only the dictionary entries actually referenced within {@code [srcIndex, srcIndex + length)}.
+     *
+     * @param source   the source dictionary or UTF-8 buffer
+     * @param srcIndex the starting logical index in {@code source}
+     * @param length   the number of elements to append
+     * @return this builder
      */
     public DictionaryBufferBuilder appendImportedBlock(DataBuffer source, long srcIndex, long length) {
         Objects.requireNonNull(source, "Source buffer cannot be null");
@@ -230,13 +278,21 @@ public final class DictionaryBufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
+    /**
+     * Returns the current number of unique entries in this builder's dictionary.
+     *
+     * @return the current dictionary cardinality
+     */
+    public int cardinality() {
+        return dictionarySize;
+    }
+
     private int findOrInsertHeapString(String value) {
         Integer cached = heapCache.get(value);
         if (cached != null) {
             return cached;
         }
 
-        // Encode once into a small stack/heap byte array or check off-heap table if mixed with appendUTF8Block
         byte[] utf8 = value.getBytes(StandardCharsets.UTF_8);
         MemorySegment tempSeg = MemorySegment.ofArray(utf8);
         int code = findOrInsertOffHeapBytes(tempSeg, 0, utf8.length);

@@ -24,6 +24,11 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
+/**
+ * Exports {@link Table}, {@link Schema}, and {@link DataBuffer} instances into native
+ * Apache Arrow C Data Interface ({@code ArrowArray}, {@code ArrowSchema}) and
+ * Apache Arrow C Stream Interface ({@code ArrowArrayStream}) structs for zero-copy FFI sharing.
+ */
 public final class ArrowCExporter {
 
     private static final long ARROW_FLAG_NULLABLE = 2L;
@@ -90,7 +95,16 @@ public final class ArrowCExporter {
 
     private ArrowCExporter() {}
 
+    /**
+     * Exports a {@link Table} into a top-level Struct ({@code +s}) {@code ArrowArray} C struct.
+     *
+     * @param table       the table to export
+     * @param structArena the arena used to allocate the C struct metadata
+     * @return a {@link MemorySegment} pointing to the populated {@code ArrowArray} struct
+     */
     public static MemorySegment exportTableArray(Table table, Arena structArena) {
+        Objects.requireNonNull(table, "table cannot be null");
+        Objects.requireNonNull(structArena, "structArena cannot be null");
         MemorySegment struct = structArena.allocate(ArrowCStructs.ARROW_ARRAY_LAYOUT);
         populateTableArray(table, struct, structArena);
         return struct;
@@ -125,11 +139,25 @@ public final class ArrowCExporter {
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_PRIVATE_DATA, MemorySegment.NULL);
     }
 
+    /**
+     * Exports a {@link Table}'s schema into a top-level Struct ({@code +s}) {@code ArrowSchema} C struct.
+     *
+     * @param table       the table whose schema should be exported
+     * @param structArena the arena used to allocate the C struct metadata
+     * @return a {@link MemorySegment} pointing to the populated {@code ArrowSchema} struct
+     */
     public static MemorySegment exportTableSchema(Table table, Arena structArena) {
         Objects.requireNonNull(table, "table cannot be null");
         return exportTableSchema(table.schema(), structArena);
     }
 
+    /**
+     * Exports a {@link Schema} into a top-level Struct ({@code +s}) {@code ArrowSchema} C struct.
+     *
+     * @param schema      the schema to export
+     * @param structArena the arena used to allocate the C struct metadata
+     * @return a {@link MemorySegment} pointing to the populated {@code ArrowSchema} struct
+     */
     public static MemorySegment exportTableSchema(Schema schema, Arena structArena) {
         Objects.requireNonNull(schema, "schema cannot be null");
         Objects.requireNonNull(structArena, "structArena cannot be null");
@@ -166,6 +194,11 @@ public final class ArrowCExporter {
 
     /**
      * Exports a lazy {@link Iterator} of {@link Table} batches as an Apache Arrow C {@code ArrowArrayStream}.
+     *
+     * @param schema      the schema shared by all batches in the stream
+     * @param batches     the iterator yielding {@link Table} batches on demand
+     * @param structArena the arena used to allocate stream and batch C struct metadata
+     * @return a {@link MemorySegment} pointing to the populated {@code ArrowArrayStream} struct
      */
     public static MemorySegment exportTableStream(Schema schema, Iterator<Table> batches, Arena structArena) {
         Objects.requireNonNull(schema, "schema cannot be null");
@@ -191,10 +224,18 @@ public final class ArrowCExporter {
     }
 
     /**
-     * Exports a {@link Table} as an {@code ArrowArrayStream} that yields zero-copy slices of at most {@code maxBatchRows}.
+     * Exports a {@link Table} as an {@code ArrowArrayStream} that yields zero-copy horizontal slices
+     * of at most {@code maxBatchRows} rows per batch.
+     *
+     * @param table        the source table to stream
+     * @param maxBatchRows the maximum number of rows per streamed batch (must be {@code > 0})
+     * @param structArena  the arena used to allocate stream and batch C struct metadata
+     * @return a {@link MemorySegment} pointing to the populated {@code ArrowArrayStream} struct
+     * @throws IllegalArgumentException if {@code maxBatchRows <= 0}
      */
     public static MemorySegment exportTableStream(Table table, long maxBatchRows, Arena structArena) {
         Objects.requireNonNull(table, "table cannot be null");
+        Objects.requireNonNull(structArena, "structArena cannot be null");
         if (maxBatchRows <= 0) {
             throw new IllegalArgumentException("maxBatchRows must be positive: " + maxBatchRows);
         }
@@ -222,7 +263,18 @@ public final class ArrowCExporter {
         return exportTableStream(table.schema(), sliceIterator, structArena);
     }
 
+    /**
+     * Exports a single {@link DataBuffer} column into an {@code ArrowArray} C struct.
+     * Multi-chunk {@link ChunkedBuffer} instances are automatically compacted into {@code structArena}.
+     *
+     * @param column      the column buffer to export
+     * @param structArena the arena used to allocate the C struct metadata
+     * @return a {@link MemorySegment} pointing to the populated {@code ArrowArray} struct
+     */
     public static MemorySegment exportArray(DataBuffer column, Arena structArena) {
+        Objects.requireNonNull(column, "column cannot be null");
+        Objects.requireNonNull(structArena, "structArena cannot be null");
+
         if (column instanceof ChunkedBuffer cb) {
             column = cb.compact(structArena);
         }
@@ -253,7 +305,16 @@ public final class ArrowCExporter {
         return struct;
     }
 
+    /**
+     * Exports a single {@link DataBuffer} column's metadata into a nullable {@code ArrowSchema} C struct.
+     *
+     * @param column      the column buffer whose schema should be exported
+     * @param structArena the arena used to allocate the C struct metadata
+     * @return a {@link MemorySegment} pointing to the populated {@code ArrowSchema} struct
+     */
     public static MemorySegment exportSchema(DataBuffer column, Arena structArena) {
+        Objects.requireNonNull(column, "column cannot be null");
+        Objects.requireNonNull(structArena, "structArena cannot be null");
         return exportFieldSchema(column.name(), column.type(), true, structArena);
     }
 
@@ -289,6 +350,13 @@ public final class ArrowCExporter {
         return null;
     }
 
+    /**
+     * Native upcall callback for {@code ArrowArrayStream.get_schema}.
+     *
+     * @param streamPtr    pointer to the {@code ArrowArrayStream} struct
+     * @param outSchemaPtr pointer to the output {@code ArrowSchema} struct to populate
+     * @return {@code 0} on success, or a POSIX {@code errno} code on failure
+     */
     public static int streamGetSchemaCallback(MemorySegment streamPtr, MemorySegment outSchemaPtr) {
         MemorySegment stream = streamPtr.reinterpret(ArrowCStructs.ARROW_ARRAY_STREAM_LAYOUT.byteSize());
         if (stream.get(ValueLayout.ADDRESS, ArrowCStructs.STREAM_OFFSET_RELEASE).equals(MemorySegment.NULL)) {
@@ -311,6 +379,13 @@ public final class ArrowCExporter {
         }
     }
 
+    /**
+     * Native upcall callback for {@code ArrowArrayStream.get_next}.
+     *
+     * @param streamPtr   pointer to the {@code ArrowArrayStream} struct
+     * @param outArrayPtr pointer to the output {@code ArrowArray} struct to populate
+     * @return {@code 0} on success (or end-of-stream), or a POSIX {@code errno} code on failure
+     */
     public static int streamGetNextCallback(MemorySegment streamPtr, MemorySegment outArrayPtr) {
         MemorySegment stream = streamPtr.reinterpret(ArrowCStructs.ARROW_ARRAY_STREAM_LAYOUT.byteSize());
         if (stream.get(ValueLayout.ADDRESS, ArrowCStructs.STREAM_OFFSET_RELEASE).equals(MemorySegment.NULL)) {
@@ -350,6 +425,12 @@ public final class ArrowCExporter {
         }
     }
 
+    /**
+     * Native upcall callback for {@code ArrowArrayStream.get_last_error}.
+     *
+     * @param streamPtr pointer to the {@code ArrowArrayStream} struct
+     * @return pointer to a null-terminated UTF-8 error string, or {@link MemorySegment#NULL} if no error occurred
+     */
     public static MemorySegment streamGetLastErrorCallback(MemorySegment streamPtr) {
         MemorySegment stream = streamPtr.reinterpret(ArrowCStructs.ARROW_ARRAY_STREAM_LAYOUT.byteSize());
         long streamId = stream.get(ValueLayout.ADDRESS, ArrowCStructs.STREAM_OFFSET_PRIVATE_DATA).address();
@@ -357,6 +438,11 @@ public final class ArrowCExporter {
         return state != null ? state.lastError : MemorySegment.NULL;
     }
 
+    /**
+     * Native upcall callback for {@code ArrowArrayStream.release}.
+     *
+     * @param streamPtr pointer to the {@code ArrowArrayStream} struct to mark released
+     */
     public static void releaseStreamCallback(MemorySegment streamPtr) {
         MemorySegment stream = streamPtr.reinterpret(ArrowCStructs.ARROW_ARRAY_STREAM_LAYOUT.byteSize());
         if (stream.get(ValueLayout.ADDRESS, ArrowCStructs.STREAM_OFFSET_RELEASE).equals(MemorySegment.NULL)) {
@@ -368,6 +454,12 @@ public final class ArrowCExporter {
         stream.set(ValueLayout.ADDRESS, ArrowCStructs.STREAM_OFFSET_RELEASE, MemorySegment.NULL);
     }
 
+    /**
+     * Native upcall callback for {@code ArrowArray.release}. Recursively releases child and dictionary
+     * arrays and sets the struct's {@code release} callback pointer to {@code NULL}.
+     *
+     * @param structPtr pointer to the {@code ArrowArray} struct to mark released
+     */
     public static void releaseArrayCallback(MemorySegment structPtr) {
         MemorySegment struct = structPtr.reinterpret(ArrowCStructs.ARROW_ARRAY_LAYOUT.byteSize());
         if (struct.get(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_RELEASE).equals(MemorySegment.NULL)) {
@@ -395,6 +487,12 @@ public final class ArrowCExporter {
         struct.set(ValueLayout.ADDRESS, ArrowCStructs.ARRAY_OFFSET_RELEASE, MemorySegment.NULL);
     }
 
+    /**
+     * Native upcall callback for {@code ArrowSchema.release}. Recursively releases child and dictionary
+     * schemas and sets the struct's {@code release} callback pointer to {@code NULL}.
+     *
+     * @param structPtr pointer to the {@code ArrowSchema} struct to mark released
+     */
     public static void releaseSchemaCallback(MemorySegment structPtr) {
         MemorySegment struct = structPtr.reinterpret(ArrowCStructs.ARROW_SCHEMA_LAYOUT.byteSize());
         if (struct.get(ValueLayout.ADDRESS, ArrowCStructs.SCHEMA_OFFSET_RELEASE).equals(MemorySegment.NULL)) {

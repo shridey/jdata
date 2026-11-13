@@ -5,12 +5,53 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="d039c1e1-1885-4ff8-9e45-ea12c0b8fbdb" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/ffi/ArrowTableStream.java" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/ffi/ArrowCStreamTest.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/benchmark/OneBillionRowsBenchmarkTest.java" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/benchmark/OneMillionRowsBenchmarkTest.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/pom.xml" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/pom.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/ArrowMemoryPool.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/memory/ArrowMemoryPool.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/DataBuffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/DataBuffer.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/DataType.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/DataType.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/PooledArena.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/memory/PooledArena.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/AbstractBufferBuilder.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/AbstractBufferBuilder.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/AbstractDataBuffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/AbstractDataBuffer.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Bitmaps.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Bitmaps.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/BooleanBuffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/BooleanBuffer.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/BooleanBufferBuilder.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/BooleanBufferBuilder.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/ChunkedBuffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/ChunkedBuffer.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/ChunkedBufferBuilder.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/ChunkedBufferBuilder.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/DictionaryBuffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/DictionaryBuffer.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/DictionaryBufferBuilder.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/DictionaryBufferBuilder.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Float32Buffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Float32Buffer.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Float32BufferBuilder.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Float32BufferBuilder.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Float64Buffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Float64Buffer.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Float64BufferBuilder.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Float64BufferBuilder.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Int32Buffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Int32Buffer.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Int32BufferBuilder.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Int32BufferBuilder.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Int64Buffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Int64Buffer.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Int64BufferBuilder.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/Int64BufferBuilder.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/UTF8Buffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/UTF8Buffer.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/UTF8BufferBuilder.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/buffer/UTF8BufferBuilder.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/ffi/ArrowCExporter.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/ffi/ArrowCExporter.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/ffi/ArrowCImporter.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/ffi/ArrowCImporter.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/ffi/ArrowTableStream.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/ffi/ArrowTableStream.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/ffi/ImportedDataBuffer.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/ffi/ImportedDataBuffer.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/internal/ArrowCStructs.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/internal/ArrowCStructs.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/internal/ArrowMemoryAllocator.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/internal/ArrowMemoryAllocator.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/layout/Field.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/layout/Field.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/layout/Schema.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/layout/Schema.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/layout/Table.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/io/github/shridey/jdata/core/layout/Table.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/main/java/module-info.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/main/java/module-info.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/buffer/BitmapsAndTableOpsTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/buffer/BitmapsAndTableOpsTest.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/buffer/ChunkedBufferTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/buffer/ChunkedBufferTest.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/buffer/DictionaryBufferTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/buffer/DictionaryBufferTest.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/buffer/MemoryPoolAndPaddingTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/buffer/MemoryPoolAndPaddingTest.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/buffer/PrimitiveBufferTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/buffer/PrimitiveBufferTest.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/buffer/UTF8BufferTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/buffer/UTF8BufferTest.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/ffi/ArrowCStreamTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/ffi/ArrowCStreamTest.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/layout/TableAndSchemaTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/layout/TableAndSchemaTest.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -23,6 +64,7 @@
         <option value="module-info" />
         <option value="Record" />
         <option value="Class" />
+        <option value="README" />
       </list>
     </option>
   </component>
@@ -43,23 +85,23 @@
 }</component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.0012131975344079" />
-      <entry key="MS500" value="1.8917012017506796" />
-      <entry key="S2" value="6.507619138809561" />
-      <entry key="S5" value="10.320041777463254" />
-      <entry key="S10" value="12.35371605340543" />
-      <entry key="S30" value="14.037714112087302" />
-      <entry key="S60" value="14.513363698677463" />
-      <entry key="M2" value="14.824844331297312" />
-      <entry key="M5" value="15.252098029193498" />
-      <entry key="M10" value="15.54333706876338" />
-      <entry key="M15" value="15.672771500693873" />
-      <entry key="M30" value="15.82363753924119" />
-      <entry key="H1" value="15.913573564505059" />
-      <entry key="H2" value="17.212568532796862" />
-      <entry key="H4" value="38.52702459000229" />
-      <entry key="D1" value="336.27046341769346" />
-      <entry key="W1" value="544.0760026505642" />
+      <entry key="MS100" value="1.0002010720257002" />
+      <entry key="MS500" value="1.1822511798938173" />
+      <entry key="S2" value="1.6658440489295627" />
+      <entry key="S5" value="2.0974842721543494" />
+      <entry key="S10" value="2.62712941265277" />
+      <entry key="S30" value="3.3855114218350386" />
+      <entry key="S60" value="3.6670045353490646" />
+      <entry key="M2" value="3.8264837623720145" />
+      <entry key="M5" value="3.928828602034212" />
+      <entry key="M10" value="3.9641172153686925" />
+      <entry key="M15" value="3.9765656078883804" />
+      <entry key="M30" value="4.098477246205203" />
+      <entry key="H1" value="5.872642680296076" />
+      <entry key="H2" value="12.352301740082341" />
+      <entry key="H4" value="30.953327720195386" />
+      <entry key="D1" value="315.07788257609275" />
+      <entry key="W1" value="557.2149962033691" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -68,36 +110,36 @@
       <entry key="S5" value="0.0" />
       <entry key="S10" value="0.0" />
       <entry key="S30" value="0.0" />
-      <entry key="S60" value="1.012281422785799E-276" />
-      <entry key="M2" value="1.4298891723888577E-138" />
-      <entry key="M5" value="1.4247314594360431E-55" />
-      <entry key="M10" value="9.45801846851166E-28" />
-      <entry key="M15" value="1.927983575531861E-18" />
-      <entry key="M30" value="4.092208528556052E-9" />
-      <entry key="H1" value="1.9268216490647694E-4" />
-      <entry key="H2" value="0.04661771945657362" />
-      <entry key="H4" value="0.9716761536701977" />
-      <entry key="D1" value="19.921752373632962" />
-      <entry key="W1" value="35.38554200714516" />
+      <entry key="S60" value="0.0" />
+      <entry key="M2" value="2.3176746817270713E-181" />
+      <entry key="M5" value="1.0905185404931511E-72" />
+      <entry key="M10" value="2.6166773642318492E-36" />
+      <entry key="M15" value="3.799589478292828E-24" />
+      <entry key="M30" value="5.744793593691437E-12" />
+      <entry key="H1" value="7.219379200349605E-6" />
+      <entry key="H2" value="0.00902360741182495" />
+      <entry key="H4" value="0.42750000959146867" />
+      <entry key="D1" value="17.373872693016676" />
+      <entry key="W1" value="34.700499250872134" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.9670828822513875" />
-      <entry key="MS500" value="1.8618500928241282" />
-      <entry key="S2" value="6.453073384463848" />
-      <entry key="S5" value="10.279829232899981" />
-      <entry key="S10" value="12.328509711907593" />
-      <entry key="S30" value="14.027883547493087" />
-      <entry key="S60" value="14.508156841066752" />
-      <entry key="M2" value="14.821610939862104" />
-      <entry key="M5" value="15.249845280449136" />
-      <entry key="M10" value="15.541798150168297" />
-      <entry key="M15" value="15.671617171898559" />
-      <entry key="M30" value="15.822984020405196" />
-      <entry key="H1" value="15.913417657375222" />
-      <entry key="H2" value="17.25899307549031" />
-      <entry key="H4" value="39.498464998240536" />
-      <entry key="D1" value="356.19165738280395" />
-      <entry key="W1" value="579.4613996677145" />
+      <entry key="MS100" value="0.7956986768474599" />
+      <entry key="MS500" value="1.1298677602949765" />
+      <entry key="S2" value="1.6473983726949792" />
+      <entry key="S5" value="2.0884899814313154" />
+      <entry key="S10" value="2.6217049569088373" />
+      <entry key="S30" value="3.3832609844084494" />
+      <entry key="S60" value="3.6657968813142814" />
+      <entry key="M2" value="3.8258565393281976" />
+      <entry key="M5" value="3.9285717005436815" />
+      <entry key="M10" value="3.96398772676882" />
+      <entry key="M15" value="3.976478954912469" />
+      <entry key="M30" value="4.098424781635298" />
+      <entry key="H1" value="5.87255830279586" />
+      <entry key="H2" value="12.361169539847374" />
+      <entry key="H4" value="31.38061356102677" />
+      <entry key="D1" value="332.45123674176546" />
+      <entry key="W1" value="591.9153483245736" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -109,45 +151,46 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;JUnit.All in jdata-core.executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.java in jdata-core (1).executor&quot;: &quot;Run&quot;,
-    &quot;JUnit.java in jdata-core.executor&quot;: &quot;Run&quot;,
-    &quot;Maven. [org.apache.maven.plugins:maven-archetype-plugin:RELEASE:generate].executor&quot;: &quot;Run&quot;,
-    &quot;Maven.jdata [clean].executor&quot;: &quot;Run&quot;,
-    &quot;Maven.jdata [deploy].executor&quot;: &quot;Run&quot;,
-    &quot;Maven.jdata [test].executor&quot;: &quot;Run&quot;,
-    &quot;Maven.jdata [wrapper:wrapper].executor&quot;: &quot;Run&quot;,
-    &quot;Maven.jdata-core [clean].executor&quot;: &quot;Run&quot;,
-    &quot;Maven.jdata-core [compile].executor&quot;: &quot;Run&quot;,
-    &quot;Maven.jdata-core [deploy].executor&quot;: &quot;Run&quot;,
-    &quot;Maven.jdata-core [install].executor&quot;: &quot;Run&quot;,
-    &quot;Maven.jdata-core [package].executor&quot;: &quot;Run&quot;,
-    &quot;Maven.jdata-core [test].executor&quot;: &quot;Run&quot;,
-    &quot;Maven.jdata-core [validate].executor&quot;: &quot;Run&quot;,
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
-    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
-    &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
-    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
-    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
-    &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;C:/Users/ShridharPandey/Projects/test/jdata-core&quot;,
-    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
-    &quot;node.js.detected.package.jshint&quot;: &quot;true&quot;,
-    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
-    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;node.js.selected.package.jshint&quot;: &quot;&quot;,
-    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;reference.settings.project.maven.runner&quot;,
-    &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "JUnit.All in jdata-core.executor": "Run",
+    "JUnit.benchmark in jdata-core.executor": "Run",
+    "JUnit.java in jdata-core (1).executor": "Run",
+    "JUnit.java in jdata-core.executor": "Run",
+    "Maven. [org.apache.maven.plugins:maven-archetype-plugin:RELEASE:generate].executor": "Run",
+    "Maven.jdata [clean].executor": "Run",
+    "Maven.jdata [deploy].executor": "Run",
+    "Maven.jdata [test].executor": "Run",
+    "Maven.jdata [wrapper:wrapper].executor": "Run",
+    "Maven.jdata-core [clean].executor": "Run",
+    "Maven.jdata-core [compile].executor": "Run",
+    "Maven.jdata-core [deploy].executor": "Run",
+    "Maven.jdata-core [install].executor": "Run",
+    "Maven.jdata-core [package].executor": "Run",
+    "Maven.jdata-core [test].executor": "Run",
+    "Maven.jdata-core [validate].executor": "Run",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
+    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
+    "git-widget-placeholder": "main",
+    "ignore.virus.scanning.warn.message": "true",
+    "junie.onboarding.icon.badge.shown": "true",
+    "kotlin-language-version-configured": "true",
+    "last_opened_file_path": "C:/Users/ShridharPandey/Projects/test/jdata-core",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.jshint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.jshint": "",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "settings.editor.selected.configurable": "reference.settings.project.maven.runner",
+    "to.speed.mode.migration.done": "true"
   }
-}</component>
+}]]></component>
   <component name="RecentsManager">
     <key name="CreateClassDialog.RecentsKey">
       <recent name="io.github.shridey.jdata.core.buffer" />
@@ -166,11 +209,19 @@
       <command value="mvn wrapper:wrapper" />
     </option>
   </component>
-  <component name="RunManager" selected="JUnit.java in jdata-core">
+  <component name="RunManager" selected="JUnit.benchmark in jdata-core">
     <configuration name="All in jdata-core" type="JUnit" factoryName="JUnit" temporary="true" nameIsGenerated="true">
       <module name="jdata" />
       <option name="PACKAGE_NAME" value="" />
       <option name="TEST_OBJECT" value="package" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="benchmark in jdata-core" type="JUnit" factoryName="JUnit" temporary="true" nameIsGenerated="true">
+      <module name="jdata-core" />
+      <option name="TEST_OBJECT" value="directory" />
+      <dir value="$PROJECT_DIR$/jdata-core/src/test/java/io/github/shridey/jdata/core/benchmark" />
       <method v="2">
         <option name="Make" enabled="true" />
       </method>
@@ -186,11 +237,13 @@
       </method>
     </configuration>
     <list>
+      <item itemvalue="JUnit.benchmark in jdata-core" />
       <item itemvalue="JUnit.All in jdata-core" />
       <item itemvalue="JUnit.java in jdata-core" />
     </list>
     <recent_temporary>
       <list>
+        <item itemvalue="JUnit.benchmark in jdata-core" />
         <item itemvalue="JUnit.java in jdata-core" />
         <item itemvalue="JUnit.All in jdata-core" />
       </list>

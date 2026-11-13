@@ -7,6 +7,9 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Objects;
 
+/**
+ * A contiguous off-heap Apache Arrow {@link DataType#INT64} column storing 64-bit signed integers.
+ */
 public final class Int64Buffer extends AbstractDataBuffer {
 
     private final MemorySegment dataBuffer;
@@ -16,6 +19,14 @@ public final class Int64Buffer extends AbstractDataBuffer {
         this.dataBuffer = dataBuffer;
     }
 
+    /**
+     * Allocates a new 64-byte-aligned and 64-byte tail-padded {@link Int64Buffer} initialized to {@code 0L} and valid.
+     *
+     * @param arena  the arena governing the off-heap allocation
+     * @param name   the column name
+     * @param length the number of elements to allocate
+     * @return a newly allocated {@link Int64Buffer}
+     */
     public static Int64Buffer allocate(Arena arena, String name, long length) {
         Objects.requireNonNull(arena, "Arena cannot be null");
         Objects.requireNonNull(name, "Column name cannot be null");
@@ -36,6 +47,14 @@ public final class Int64Buffer extends AbstractDataBuffer {
 
     /**
      * Zero-copy wraps pre-allocated or memory-mapped validity and 64-bit integer data segments.
+     *
+     * @param name           the column name
+     * @param arena          the governing arena
+     * @param length         the logical element count
+     * @param offset         the starting physical element offset
+     * @param validityBitmap the validity bitmap segment (or {@link MemorySegment#NULL})
+     * @param dataBuffer     the 64-bit integer values segment
+     * @return a wrapped {@link Int64Buffer}
      */
     public static Int64Buffer wrap(String name, Arena arena, long length, long offset,
                                    MemorySegment validityBitmap, MemorySegment dataBuffer) {
@@ -45,12 +64,26 @@ public final class Int64Buffer extends AbstractDataBuffer {
         return new Int64Buffer(name, arena, length, offset, validityBitmap, dataBuffer);
     }
 
+    /**
+     * Reads the {@code long} value at the specified logical index.
+     *
+     * @param index the zero-based logical index
+     * @return the {@code long} value at {@code index}
+     * @throws IndexOutOfBoundsException if {@code index < 0 || index >= length()}
+     */
     public long get(long index) {
         checkBounds(index);
         long physicalIndex = index + this.offset;
         return dataBuffer.get(ValueLayout.JAVA_LONG, physicalIndex * ValueLayout.JAVA_LONG.byteSize());
     }
 
+    /**
+     * Writes a {@code long} value at the specified logical index and marks the slot valid.
+     *
+     * @param index the zero-based logical index
+     * @param value the {@code long} value to write
+     * @throws IndexOutOfBoundsException if {@code index < 0 || index >= length()}
+     */
     public void set(long index, long value) {
         checkBounds(index);
         long physicalIndex = index + this.offset;
@@ -58,6 +91,12 @@ public final class Int64Buffer extends AbstractDataBuffer {
         setValid(index);
     }
 
+    /**
+     * Bulk-copies a Java {@code long[]} into off-heap memory starting at logical index {@code 0}.
+     *
+     * @param source the source array to copy from
+     * @throws IndexOutOfBoundsException if {@code source.length > length()}
+     */
     public void copyFrom(long[] source) {
         Objects.requireNonNull(source, "Source array cannot be null");
         if (source.length > this.length) {
@@ -79,6 +118,14 @@ public final class Int64Buffer extends AbstractDataBuffer {
         }
     }
 
+    /**
+     * Copies a contiguous block of elements and validity bits from {@code source} into this buffer.
+     *
+     * @param source    the source {@link Int64Buffer}
+     * @param srcIndex  the starting logical index in {@code source}
+     * @param destIndex the starting logical index in this buffer
+     * @param length    the number of elements to copy
+     */
     public void copyBlock(Int64Buffer source, long srcIndex, long destIndex, long length) {
         Objects.requireNonNull(source, "Source buffer cannot be null");
         Objects.checkFromIndexSize(srcIndex, length, source.length);
@@ -111,6 +158,11 @@ public final class Int64Buffer extends AbstractDataBuffer {
         }
     }
 
+    /**
+     * Materializes the elements of this buffer into a newly allocated Java {@code long[]}.
+     *
+     * @return a Java {@code long[]} containing this buffer's values
+     */
     public long[] toArray() {
         if (this.length > Integer.MAX_VALUE) {
             throw new IllegalStateException("Buffer length is too large to fit in a Java array.");

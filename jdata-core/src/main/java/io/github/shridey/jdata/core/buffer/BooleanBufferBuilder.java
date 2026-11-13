@@ -8,10 +8,20 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Objects;
 
+/**
+ * Dynamically builds an off-heap bit-packed {@link BooleanBuffer}.
+ */
 public final class BooleanBufferBuilder extends AbstractBufferBuilder {
 
     private MemorySegment dataBuffer;
 
+    /**
+     * Creates a new {@link BooleanBufferBuilder} with the specified initial row capacity.
+     *
+     * @param arena                  the memory arena governing allocations
+     * @param name                   the column name
+     * @param initialLogicalCapacity the initial logical row capacity
+     */
     public BooleanBufferBuilder(Arena arena, String name, long initialLogicalCapacity) {
         super(arena, name, initialLogicalCapacity);
 
@@ -28,6 +38,12 @@ public final class BooleanBufferBuilder extends AbstractBufferBuilder {
         }
     }
 
+    /**
+     * Appends a single non-null boolean value.
+     *
+     * @param value the boolean value to append
+     * @return this builder
+     */
     public BooleanBufferBuilder append(boolean value) {
         ensureLogicalCapacity(1);
 
@@ -46,6 +62,12 @@ public final class BooleanBufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
+    /**
+     * Bulk-appends an array of boolean values using 8-bit byte packing.
+     *
+     * @param values the array of boolean values to append
+     * @return this builder
+     */
     public BooleanBufferBuilder appendAll(boolean[] values) {
         Objects.requireNonNull(values, "Values array cannot be null");
         if (values.length == 0) return this;
@@ -96,6 +118,11 @@ public final class BooleanBufferBuilder extends AbstractBufferBuilder {
         dataBuffer.set(ValueLayout.JAVA_BYTE, byteIndex, b);
     }
 
+    /**
+     * Appends a single null entry.
+     *
+     * @return this builder
+     */
     public BooleanBufferBuilder appendNull() {
         ensureLogicalCapacity(1);
         markCurrentNull();
@@ -103,10 +130,26 @@ public final class BooleanBufferBuilder extends AbstractBufferBuilder {
         return this;
     }
 
+    /**
+     * Appends a range of elements from an existing {@link BooleanBuffer}.
+     *
+     * @param source   the source buffer
+     * @param srcIndex the starting logical index in {@code source}
+     * @param length   the number of elements to append
+     * @return this builder
+     */
     public BooleanBufferBuilder appendBlock(BooleanBuffer source, long srcIndex, long length) {
         return appendImportedBlock(source, srcIndex, length);
     }
 
+    /**
+     * Appends a range of elements from any {@link DataBuffer} of type {@link DataType#BOOLEAN}.
+     *
+     * @param source   the source buffer
+     * @param srcIndex the starting logical index in {@code source}
+     * @param length   the number of elements to append
+     * @return this builder
+     */
     public BooleanBufferBuilder appendImportedBlock(DataBuffer source, long srcIndex, long length) {
         Objects.requireNonNull(source, "Source buffer cannot be null");
         if (source.type() != DataType.BOOLEAN) {
@@ -128,22 +171,20 @@ public final class BooleanBufferBuilder extends AbstractBufferBuilder {
         long srcPhysicalStart = srcIndex + source.offset();
         boolean hasNulls = source.nullCount() > 0;
 
-        if ((srcPhysicalStart & 7L) == 0 && (logicalLength & 7L) == 0) {
+        if (!hasNulls && (srcPhysicalStart & 7L) == 0 && (logicalLength & 7L) == 0) {
             long fullBytes = length >>> 3;
             if (fullBytes > 0) {
                 MemorySegment.copy(foreignDataBuffer, srcPhysicalStart >>> 3, dataBuffer, logicalLength >>> 3, fullBytes);
             }
-            if (!hasNulls) {
-                long copiedBits = fullBytes << 3;
-                logicalLength += copiedBits;
-                for (long i = copiedBits; i < length; i++) {
-                    long physicalIdx = srcPhysicalStart + i;
-                    byte b = foreignDataBuffer.get(ValueLayout.JAVA_BYTE, physicalIdx >>> 3);
-                    writeBitAtCurrentLength(((b >>> (int) (physicalIdx & 7L)) & 1) != 0);
-                    logicalLength++;
-                }
-                return this;
+            long copiedBits = fullBytes << 3;
+            logicalLength += copiedBits;
+            for (long i = copiedBits; i < length; i++) {
+                long physicalIdx = srcPhysicalStart + i;
+                byte b = foreignDataBuffer.get(ValueLayout.JAVA_BYTE, physicalIdx >>> 3);
+                writeBitAtCurrentLength(((b >>> (int) (physicalIdx & 7L)) & 1) != 0);
+                logicalLength++;
             }
+            return this;
         }
 
         for (long i = 0; i < length; i++) {

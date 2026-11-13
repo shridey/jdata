@@ -13,12 +13,12 @@ class UTF8BufferTest {
     void testMultilingualUnicodeAndEmojiEncoding() {
         try (Arena arena = Arena.ofConfined()) {
             String[] samples = {
-                    "ASCII_123",                  // 1-byte UTF-8
-                    "",                           // Empty string
-                    null,                         // Null entry
-                    "Café & Привет & αβγ",        // 2-byte UTF-8
-                    "नमस्ते दुनिया | 日本語 | €",    // 3-byte UTF-8
-                    "🚀🔥🎉Jw𝄞"                    // 4-byte surrogate pairs (Astral plane)
+                    "ASCII_123",
+                    "",
+                    null,
+                    "Café & Привет & αβγ",
+                    "नमस्ते दुनिया | 日本語 | €",
+                    "🚀🔥🎉Jw𝄞"
             };
 
             UTF8Buffer allocated = UTF8Buffer.allocate(arena, "i18n", samples);
@@ -26,8 +26,8 @@ class UTF8BufferTest {
             assertEquals(1L, allocated.nullCount());
             assertArrayEquals(samples, allocated.toArray());
 
-            // Verify identical results via UTF8BufferBuilder.append and appendAll
-            UTF8BufferBuilder builder = new UTF8BufferBuilder(arena, "i18n_built", 2, 8);
+            // Exercise the 3-argument UTF8BufferBuilder(Arena, String, long) constructor
+            UTF8BufferBuilder builder = new UTF8BufferBuilder(arena, "i18n_built", 2);
             for (String s : samples) {
                 builder.append(s);
             }
@@ -47,11 +47,11 @@ class UTF8BufferTest {
     void testMalformedUnpairedSurrogatesDoNotCrashOrCorruptOffsets() {
         try (Arena arena = Arena.ofConfined()) {
             String[] malformed = {
-                    "trailHigh\uD83D",             // Unpaired high surrogate at end of string
-                    "midHigh\uD83DASCII",          // Unpaired high surrogate followed by ASCII
-                    "\uD800\uD83D\uDE80",          // Unpaired high surrogate followed by valid 🚀 pair
-                    "loneLow\uDE00end",            // Unpaired low surrogate
-                    "clean_after_malformed"        // Must remain completely uncorrupted
+                    "trailHigh\uD83D",
+                    "midHigh\uD83DASCII",
+                    "\uD800\uD83D\uDE80",
+                    "loneLow\uDE00end",
+                    "clean_after_malformed"
             };
 
             UTF8Buffer allocated = UTF8Buffer.allocate(arena, "malformed", malformed);
@@ -73,7 +73,6 @@ class UTF8BufferTest {
             String[] words = {"Zero", "One", null, "Three_🚀", "Four", "Five"};
             UTF8Buffer base = UTF8Buffer.allocate(arena, "words", words);
 
-            // Chained slice: base[1..6) -> sub[1..4) == ["null", "Three_🚀", "Four"]
             UTF8Buffer slice1 = base.slice(1, 5);
             UTF8Buffer slice2 = slice1.slice(1, 3);
 
@@ -82,7 +81,6 @@ class UTF8BufferTest {
             assertEquals(1L, slice2.nullCount());
             assertArrayEquals(new String[]{null, "Three_🚀", "Four"}, slice2.toArray());
 
-            // Append sliced block into a builder that already has data (exercises offsetDelta != 0)
             UTF8BufferBuilder builder = new UTF8BufferBuilder(arena, "combined", 2, 8);
             builder.append("Header")
                     .appendBlock(slice2, 0, slice2.length())
@@ -93,7 +91,6 @@ class UTF8BufferTest {
             assertEquals(1L, result.nullCount());
             assertArrayEquals(new String[]{"Header", null, "Three_🚀", "Four", "Footer"}, result.toArray());
 
-            // Fast-path block copy: unsliced non-null buffer into empty builder (offsetDelta == 0 && !hasNulls)
             UTF8Buffer nonNull = UTF8Buffer.allocate(arena, "clean", new String[]{"Alpha", "Beta", "Gamma"});
             UTF8Buffer fastCopy = nonNull.toBuilder(arena).build();
             assertEquals(0L, fastCopy.nullCount());

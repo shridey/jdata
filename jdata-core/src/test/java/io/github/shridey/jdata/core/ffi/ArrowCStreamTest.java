@@ -1,8 +1,8 @@
 package io.github.shridey.jdata.core.ffi;
 
-import io.github.shridey.jdata.core.ArrowMemoryPool;
+import io.github.shridey.jdata.core.memory.ArrowMemoryPool;
 import io.github.shridey.jdata.core.DataType;
-import io.github.shridey.jdata.core.PooledArena;
+import io.github.shridey.jdata.core.memory.PooledArena;
 import io.github.shridey.jdata.core.buffer.DictionaryBuffer;
 import io.github.shridey.jdata.core.buffer.Float64Buffer;
 import io.github.shridey.jdata.core.buffer.Int32Buffer;
