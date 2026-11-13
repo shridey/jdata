@@ -311,6 +311,87 @@ public final class ChunkedBuffer implements DataBuffer {
     }
 
     @Override
+    public ChunkedBuffer withName(String newName) {
+        Objects.requireNonNull(newName, "newName cannot be null");
+        return new ChunkedBuffer(this.arena, newName, this.type, this.chunks);
+    }
+
+    @Override
+    public DataBuffer take(Int32Buffer indices, Arena targetArena) {
+        Objects.requireNonNull(indices, "indices cannot be null");
+        Objects.requireNonNull(targetArena, "targetArena cannot be null");
+
+        long outLen = indices.length();
+        boolean idxHasNulls = indices.nullCount() > 0;
+        boolean srcHasNulls = this.nullCount() > 0;
+
+        return switch (this.type) {
+            case INT32 -> {
+                Int32Buffer out = Int32Buffer.allocate(targetArena, this.name, outLen);
+                for (long i = 0; i < outLen; i++) {
+                    if (idxHasNulls && indices.isNull(i)) out.setNull(i);
+                    else {
+                        int r = indices.get(i);
+                        if (srcHasNulls && isNull(r)) out.setNull(i);
+                        else out.set(i, getInt(r));
+                    }
+                }
+                yield out;
+            }
+            case INT64 -> {
+                Int64Buffer out = Int64Buffer.allocate(targetArena, this.name, outLen);
+                for (long i = 0; i < outLen; i++) {
+                    if (idxHasNulls && indices.isNull(i)) out.setNull(i);
+                    else {
+                        int r = indices.get(i);
+                        if (srcHasNulls && isNull(r)) out.setNull(i);
+                        else out.set(i, getLong(r));
+                    }
+                }
+                yield out;
+            }
+            case FLOAT32 -> {
+                Float32Buffer out = Float32Buffer.allocate(targetArena, this.name, outLen);
+                for (long i = 0; i < outLen; i++) {
+                    if (idxHasNulls && indices.isNull(i)) out.setNull(i);
+                    else {
+                        int r = indices.get(i);
+                        if (srcHasNulls && isNull(r)) out.setNull(i);
+                        else out.set(i, getFloat(r));
+                    }
+                }
+                yield out;
+            }
+            case FLOAT64 -> {
+                Float64Buffer out = Float64Buffer.allocate(targetArena, this.name, outLen);
+                for (long i = 0; i < outLen; i++) {
+                    if (idxHasNulls && indices.isNull(i)) out.setNull(i);
+                    else {
+                        int r = indices.get(i);
+                        if (srcHasNulls && isNull(r)) out.setNull(i);
+                        else out.set(i, getDouble(r));
+                    }
+                }
+                yield out;
+            }
+            case BOOLEAN -> {
+                BooleanBuffer out = BooleanBuffer.allocate(targetArena, this.name, outLen);
+                for (long i = 0; i < outLen; i++) {
+                    if (idxHasNulls && indices.isNull(i)) out.setNull(i);
+                    else {
+                        int r = indices.get(i);
+                        if (srcHasNulls && isNull(r)) out.setNull(i);
+                        else out.set(i, getBoolean(r));
+                    }
+                }
+                yield out;
+            }
+            case UTF8, DICTIONARY -> compact(targetArena).take(indices, targetArena);
+            default -> throw new UnsupportedOperationException("take() not supported for chunked type: " + this.type);
+        };
+    }
+
+    @Override
     public AbstractBufferBuilder toBuilder(Arena targetArena) {
         Objects.requireNonNull(targetArena, "targetArena cannot be null");
 

@@ -184,6 +184,37 @@ public final class BooleanBuffer extends AbstractDataBuffer {
         return new BooleanBuffer(this.name, this.arena, sliceLength, absoluteOffset, this.validityBitmap, this.dataBuffer);
     }
 
+    @Override
+    public BooleanBuffer withName(String newName) {
+        Objects.requireNonNull(newName, "newName cannot be null");
+        return new BooleanBuffer(newName, this.arena, this.length, this.offset, this.validityBitmap, this.dataBuffer);
+    }
+
+    @Override
+    public BooleanBuffer take(Int32Buffer indices, Arena targetArena) {
+        Objects.requireNonNull(indices, "indices cannot be null");
+        Objects.requireNonNull(targetArena, "targetArena cannot be null");
+
+        long outLen = indices.length();
+        BooleanBuffer out = BooleanBuffer.allocate(targetArena, this.name, outLen);
+        boolean idxHasNulls = indices.nullCount() > 0;
+        boolean srcHasNulls = this.nullCount() > 0;
+
+        for (long i = 0; i < outLen; i++) {
+            if (idxHasNulls && indices.isNull(i)) {
+                out.setNull(i);
+            } else {
+                int rowIdx = indices.get(i);
+                if (srcHasNulls && this.isNull(rowIdx)) {
+                    out.setNull(i);
+                } else {
+                    out.set(i, this.get(rowIdx));
+                }
+            }
+        }
+        return out;
+    }
+
     @Override public DataType type() { return DataType.BOOLEAN; }
     @Override public int bufferCount() { return 2; }
 

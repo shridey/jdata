@@ -141,6 +141,52 @@ public final class Int32Buffer extends AbstractDataBuffer {
         return new Int32Buffer(this.name, this.arena, sliceLength, absoluteOffset, this.validityBitmap, this.dataBuffer);
     }
 
+    @Override
+    public Int32Buffer withName(String newName) {
+        Objects.requireNonNull(newName, "newName cannot be null");
+        return new Int32Buffer(newName, this.arena, this.length, this.offset, this.validityBitmap, this.dataBuffer);
+    }
+
+    @Override
+    public Int32Buffer take(Int32Buffer indices, Arena targetArena) {
+        Objects.requireNonNull(indices, "indices cannot be null");
+        Objects.requireNonNull(targetArena, "targetArena cannot be null");
+
+        long outLen = indices.length();
+        Int32Buffer out = Int32Buffer.allocate(targetArena, this.name, outLen);
+        if (outLen == 0) return out;
+
+        MemorySegment outData = out.dataBuffer;
+        MemorySegment idxData = indices.dataBuffer;
+        long idxOffset = indices.offset;
+        long intBytes = ValueLayout.JAVA_INT.byteSize();
+
+        if (this.nullCount() == 0 && indices.nullCount() == 0) {
+            for (long i = 0; i < outLen; i++) {
+                int rowIdx = idxData.get(ValueLayout.JAVA_INT, (idxOffset + i) * intBytes);
+                checkBounds(rowIdx);
+                int val = this.dataBuffer.get(ValueLayout.JAVA_INT, (this.offset + rowIdx) * intBytes);
+                outData.set(ValueLayout.JAVA_INT, i * intBytes, val);
+            }
+        } else {
+            boolean idxHasNulls = indices.nullCount() > 0;
+            boolean srcHasNulls = this.nullCount() > 0;
+            for (long i = 0; i < outLen; i++) {
+                if (idxHasNulls && indices.isNull(i)) {
+                    out.setNull(i);
+                } else {
+                    int rowIdx = idxData.get(ValueLayout.JAVA_INT, (idxOffset + i) * intBytes);
+                    if (srcHasNulls && this.isNull(rowIdx)) {
+                        out.setNull(i);
+                    } else {
+                        outData.set(ValueLayout.JAVA_INT, i * intBytes, this.get(rowIdx));
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
     @Override public DataType type() { return DataType.INT32; }
     @Override public int bufferCount() { return 2; }
 

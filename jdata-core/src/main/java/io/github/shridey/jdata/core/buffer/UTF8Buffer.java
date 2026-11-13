@@ -197,6 +197,75 @@ public final class UTF8Buffer extends AbstractDataBuffer {
                 this.validityBitmap, this.offsetsBuffer, this.dataBuffer);
     }
 
+    @Override
+    public UTF8Buffer withName(String newName) {
+        Objects.requireNonNull(newName, "newName cannot be null");
+        return new UTF8Buffer(newName, this.arena, this.length, this.offset,
+                this.validityBitmap, this.offsetsBuffer, this.dataBuffer);
+    }
+
+    @Override
+    public UTF8Buffer take(Int32Buffer indices, Arena targetArena) {
+        Objects.requireNonNull(indices, "indices cannot be null");
+        Objects.requireNonNull(targetArena, "targetArena cannot be null");
+
+        long outLen = indices.length();
+        boolean idxHasNulls = indices.nullCount() > 0;
+        boolean srcHasNulls = this.nullCount() > 0;
+        long intBytes = ValueLayout.JAVA_INT.byteSize();
+
+        // Pass 1: Sum exact byte length of selected UTF-8 slices
+        long totalBytes = 0;
+        for (long i = 0; i < outLen; i++) {
+            if (!idxHasNulls || !indices.isNull(i)) {
+                int rowIdx = indices.get(i);
+                checkBounds(rowIdx);
+                if (!srcHasNulls || !this.isNull(rowIdx)) {
+                    long phys = this.offset + rowIdx;
+                    int s = offsetsBuffer.get(ValueLayout.JAVA_INT, phys * intBytes);
+                    int e = offsetsBuffer.get(ValueLayout.JAVA_INT, (phys + 1L) * intBytes);
+                    totalBytes += (e - s);
+                }
+            }
+        }
+
+        if (totalBytes > Integer.MAX_VALUE) {
+            throw new IllegalStateException("Gathered UTF8Buffer exceeds Integer.MAX_VALUE bytes.");
+        }
+
+        MemorySegment outValidity = ArrowMemoryAllocator.allocateAligned(targetArena, (outLen + 7L) >>> 3);
+        MemorySegment outOffsets = ArrowMemoryAllocator.allocateAligned(targetArena, Math.multiplyExact(outLen + 1L, intBytes));
+        MemorySegment outData = ArrowMemoryAllocator.allocateAligned(targetArena, totalBytes);
+
+        UTF8Buffer out = new UTF8Buffer(this.name, targetArena, outLen, 0, outValidity, outOffsets, outData);
+        out.setAllValid();
+
+        // Pass 2: Copy UTF-8 byte ranges directly off-heap
+        int cursor = 0;
+        for (long i = 0; i < outLen; i++) {
+            outOffsets.set(ValueLayout.JAVA_INT, i * intBytes, cursor);
+            if (idxHasNulls && indices.isNull(i)) {
+                out.setNull(i);
+            } else {
+                int rowIdx = indices.get(i);
+                if (srcHasNulls && this.isNull(rowIdx)) {
+                    out.setNull(i);
+                } else {
+                    long phys = this.offset + rowIdx;
+                    int s = offsetsBuffer.get(ValueLayout.JAVA_INT, phys * intBytes);
+                    int e = offsetsBuffer.get(ValueLayout.JAVA_INT, (phys + 1L) * intBytes);
+                    int len = e - s;
+                    if (len > 0) {
+                        MemorySegment.copy(this.dataBuffer, s, outData, cursor, len);
+                        cursor += len;
+                    }
+                }
+            }
+        }
+        outOffsets.set(ValueLayout.JAVA_INT, outLen * intBytes, cursor);
+        return out;
+    }
+
     @Override public DataType type() { return DataType.UTF8; }
     @Override public int bufferCount() { return 3; }
 

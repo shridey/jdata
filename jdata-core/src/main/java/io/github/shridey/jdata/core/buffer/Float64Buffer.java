@@ -141,6 +141,53 @@ public final class Float64Buffer extends AbstractDataBuffer {
         return new Float64Buffer(this.name, this.arena, sliceLength, absoluteOffset, this.validityBitmap, this.dataBuffer);
     }
 
+    @Override
+    public Float64Buffer withName(String newName) {
+        Objects.requireNonNull(newName, "newName cannot be null");
+        return new Float64Buffer(newName, this.arena, this.length, this.offset, this.validityBitmap, this.dataBuffer);
+    }
+
+    @Override
+    public Float64Buffer take(Int32Buffer indices, Arena targetArena) {
+        Objects.requireNonNull(indices, "indices cannot be null");
+        Objects.requireNonNull(targetArena, "targetArena cannot be null");
+
+        long outLen = indices.length();
+        Float64Buffer out = Float64Buffer.allocate(targetArena, this.name, outLen);
+        if (outLen == 0) return out;
+
+        MemorySegment outData = out.dataBuffer;
+        MemorySegment idxData = indices.buffer(1);
+        long idxOffset = indices.offset();
+        long intBytes = ValueLayout.JAVA_INT.byteSize();
+        long doubleBytes = ValueLayout.JAVA_DOUBLE.byteSize();
+
+        if (this.nullCount() == 0 && indices.nullCount() == 0) {
+            for (long i = 0; i < outLen; i++) {
+                int rowIdx = idxData.get(ValueLayout.JAVA_INT, (idxOffset + i) * intBytes);
+                checkBounds(rowIdx);
+                double val = this.dataBuffer.get(ValueLayout.JAVA_DOUBLE, (this.offset + rowIdx) * doubleBytes);
+                outData.set(ValueLayout.JAVA_DOUBLE, i * doubleBytes, val);
+            }
+        } else {
+            boolean idxHasNulls = indices.nullCount() > 0;
+            boolean srcHasNulls = this.nullCount() > 0;
+            for (long i = 0; i < outLen; i++) {
+                if (idxHasNulls && indices.isNull(i)) {
+                    out.setNull(i);
+                } else {
+                    int rowIdx = idxData.get(ValueLayout.JAVA_INT, (idxOffset + i) * intBytes);
+                    if (srcHasNulls && this.isNull(rowIdx)) {
+                        out.setNull(i);
+                    } else {
+                        outData.set(ValueLayout.JAVA_DOUBLE, i * doubleBytes, this.get(rowIdx));
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
     @Override public DataType type() { return DataType.FLOAT64; }
     @Override public int bufferCount() { return 2; }
 

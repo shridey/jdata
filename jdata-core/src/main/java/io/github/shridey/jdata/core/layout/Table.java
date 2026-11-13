@@ -1,7 +1,10 @@
 package io.github.shridey.jdata.core.layout;
 
 import io.github.shridey.jdata.core.DataBuffer;
+import io.github.shridey.jdata.core.buffer.Bitmaps;
+import io.github.shridey.jdata.core.buffer.BooleanBuffer;
 import io.github.shridey.jdata.core.buffer.ChunkedBuffer;
+import io.github.shridey.jdata.core.buffer.Int32Buffer;
 
 import java.lang.foreign.Arena;
 import java.util.ArrayList;
@@ -87,7 +90,6 @@ public final class Table {
 
     /**
      * O(1) Zero-Copy Table Slicing.
-     * Partitions the entire table instantly for multithreaded workloads.
      */
     public Table slice(long offset, long length) {
         Objects.checkFromIndexSize(offset, length, this.rowCount);
@@ -100,8 +102,134 @@ public final class Table {
     }
 
     /**
+     * Returns the first {@code n} rows as a zero-copy slice.
+     */
+    public Table head(long n) {
+        if (n < 0) throw new IllegalArgumentException("n cannot be negative: " + n);
+        return slice(0, Math.min(n, this.rowCount));
+    }
+
+    /**
+     * Returns the last {@code n} rows as a zero-copy slice.
+     */
+    public Table tail(long n) {
+        if (n < 0) throw new IllegalArgumentException("n cannot be negative: " + n);
+        long count = Math.min(n, this.rowCount);
+        return slice(this.rowCount - count, count);
+    }
+
+    /**
+     * O(1) Zero-Copy Column Projection by column names.
+     */
+    public Table select(String... columnNames) {
+        Objects.requireNonNull(columnNames, "columnNames cannot be null");
+        List<Field> projectedFields = new ArrayList<>(columnNames.length);
+        List<DataBuffer> projectedCols = new ArrayList<>(columnNames.length);
+        for (String name : columnNames) {
+            int idx = schema.getFieldIndex(name);
+            if (idx == -1) {
+                throw new IllegalArgumentException("Column not found: " + name);
+            }
+            projectedFields.add(schema.getField(idx));
+            projectedCols.add(columns.get(idx));
+        }
+        return new Table(new Schema(projectedFields), projectedCols);
+    }
+
+    /**
+     * O(1) Zero-Copy Column Addition.
+     */
+    public Table addColumn(Field field, DataBuffer column) {
+        Objects.requireNonNull(field, "field cannot be null");
+        Objects.requireNonNull(column, "column cannot be null");
+        List<DataBuffer> updatedCols = new ArrayList<>(columns.size() + 1);
+        updatedCols.addAll(columns);
+        updatedCols.add(column);
+        return new Table(schema.addField(field), updatedCols);
+    }
+
+    /**
+     * O(1) Zero-Copy Column Replacement at {@code index}.
+     */
+    public Table replaceColumn(int index, Field field, DataBuffer column) {
+        Objects.requireNonNull(field, "field cannot be null");
+        Objects.requireNonNull(column, "column cannot be null");
+        Objects.checkIndex(index, columns.size());
+        List<DataBuffer> updatedCols = new ArrayList<>(columns);
+        updatedCols.set(index, column);
+        return new Table(schema.replaceField(index, field), updatedCols);
+    }
+
+    /**
+     * O(1) Zero-Copy Column Removal by name.
+     */
+    public Table dropColumn(String columnName) {
+        int idx = schema.getFieldIndex(columnName);
+        if (idx == -1) {
+            throw new IllegalArgumentException("Column not found: " + columnName);
+        }
+        List<DataBuffer> updatedCols = new ArrayList<>(columns.size() - 1);
+        for (int i = 0; i < columns.size(); i++) {
+            if (i != idx) {
+                updatedCols.add(columns.get(i));
+            }
+        }
+        return new Table(schema.dropField(columnName), updatedCols);
+    }
+
+    /**
+     * O(1) Zero-Copy Column Rename.
+     */
+    public Table renameColumn(String oldName, String newName) {
+        Objects.requireNonNull(newName, "newName cannot be null");
+        int idx = schema.getFieldIndex(oldName);
+        if (idx == -1) {
+            throw new IllegalArgumentException("Column not found: " + oldName);
+        }
+        Schema renamedSchema = schema.renameField(oldName, newName);
+        List<DataBuffer> updatedCols = new ArrayList<>(columns);
+        updatedCols.set(idx, columns.get(idx).withName(newName));
+        return new Table(renamedSchema, updatedCols);
+    }
+
+    /**
+     * Gathers rows across all columns using a 32-bit SelectionVector ({@code indices}).
+     */
+    public Table take(Int32Buffer indices, Arena targetArena) {
+        Objects.requireNonNull(indices, "indices cannot be null");
+        Objects.requireNonNull(targetArena, "targetArena cannot be null");
+
+        boolean indicesHaveNulls = indices.nullCount() > 0;
+        List<Field> outFields = new ArrayList<>(columns.size());
+        List<DataBuffer> outCols = new ArrayList<>(columns.size());
+
+        for (int i = 0; i < columns.size(); i++) {
+            Field f = schema.getField(i);
+            DataBuffer gathered = columns.get(i).take(indices, targetArena);
+            outCols.add(gathered);
+            outFields.add(indicesHaveNulls && !f.nullable() ? new Field(f.name(), f.type(), true) : f);
+        }
+        return new Table(new Schema(outFields), outCols);
+    }
+
+    /**
+     * Filters this Table using a {@link BooleanBuffer} predicate mask via hardware-accelerated
+     * 64-bit word scanning and SelectionVector gathering.
+     */
+    public Table filter(BooleanBuffer mask, Arena targetArena) {
+        Objects.requireNonNull(mask, "mask cannot be null");
+        Objects.requireNonNull(targetArena, "targetArena cannot be null");
+        if (mask.length() != this.rowCount) {
+            throw new IllegalArgumentException(
+                    "Filter mask length (" + mask.length() + ") does not match Table rowCount (" + this.rowCount + ")"
+            );
+        }
+        Int32Buffer selectionIndices = Bitmaps.toSelectionIndices(mask, targetArena);
+        return take(selectionIndices, targetArena);
+    }
+
+    /**
      * O(1) Zero-Copy Table Concatenation.
-     * Combines this Table with {@code other} using {@link ChunkedBuffer} columns without copying off-heap data.
      */
     public Table concat(Table other) {
         Objects.requireNonNull(other, "other Table cannot be null");

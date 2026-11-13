@@ -1,5 +1,6 @@
 package io.github.shridey.jdata.core.ffi;
 
+import io.github.shridey.jdata.core.DataBuffer;
 import io.github.shridey.jdata.core.DataType;
 import io.github.shridey.jdata.core.buffer.*;
 
@@ -93,6 +94,20 @@ public final class ImportedDataBuffer extends AbstractDataBuffer {
 
         return new ImportedDataBuffer(this.name, this.arena, this.type, sliceLength,
                 absoluteOffset, sliceNullCount, this.buffers, this.dictionary);
+    }
+
+    @Override
+    public ImportedDataBuffer withName(String newName) {
+        Objects.requireNonNull(newName, "newName cannot be null");
+        return new ImportedDataBuffer(newName, this.arena, this.type, this.length,
+                this.offset, this.nullCount, this.buffers, this.dictionary);
+    }
+
+    @Override
+    public DataBuffer take(Int32Buffer indices, Arena targetArena) {
+        Objects.requireNonNull(indices, "indices cannot be null");
+        Objects.requireNonNull(targetArena, "targetArena cannot be null");
+        return this.toBuilder(targetArena).build().take(indices, targetArena);
     }
 
     public int getInt(long index) {

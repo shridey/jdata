@@ -241,6 +241,31 @@ public final class DictionaryBuffer extends AbstractDataBuffer {
     }
 
     @Override
+    public DictionaryBuffer withName(String newName) {
+        Objects.requireNonNull(newName, "newName cannot be null");
+        return new DictionaryBuffer(
+                newName, this.arena, this.length, this.offset,
+                this.validityBitmap, this.indicesBuffer, this.dictionary
+        );
+    }
+
+    @Override
+    public DictionaryBuffer take(Int32Buffer selectionIndices, Arena targetArena) {
+        Objects.requireNonNull(selectionIndices, "selectionIndices cannot be null");
+        Objects.requireNonNull(targetArena, "targetArena cannot be null");
+
+        Int32Buffer gatheredCodes = indices().take(selectionIndices, targetArena);
+        UTF8Buffer targetDict = targetArena.equals(this.dictionary.arena())
+                ? this.dictionary
+                : this.dictionary.toBuilder(targetArena).build();
+
+        return new DictionaryBuffer(
+                this.name, targetArena, gatheredCodes.length(), 0,
+                gatheredCodes.buffer(0), gatheredCodes.buffer(1), targetDict
+        );
+    }
+
+    @Override
     public DataType type() {
         return DataType.DICTIONARY;
     }

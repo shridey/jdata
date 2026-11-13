@@ -141,6 +141,53 @@ public final class Int64Buffer extends AbstractDataBuffer {
         return new Int64Buffer(this.name, this.arena, sliceLength, absoluteOffset, this.validityBitmap, this.dataBuffer);
     }
 
+    @Override
+    public Int64Buffer withName(String newName) {
+        Objects.requireNonNull(newName, "newName cannot be null");
+        return new Int64Buffer(newName, this.arena, this.length, this.offset, this.validityBitmap, this.dataBuffer);
+    }
+
+    @Override
+    public Int64Buffer take(Int32Buffer indices, Arena targetArena) {
+        Objects.requireNonNull(indices, "indices cannot be null");
+        Objects.requireNonNull(targetArena, "targetArena cannot be null");
+
+        long outLen = indices.length();
+        Int64Buffer out = Int64Buffer.allocate(targetArena, this.name, outLen);
+        if (outLen == 0) return out;
+
+        MemorySegment outData = out.dataBuffer;
+        MemorySegment idxData = indices.buffer(1);
+        long idxOffset = indices.offset();
+        long intBytes = ValueLayout.JAVA_INT.byteSize();
+        long longBytes = ValueLayout.JAVA_LONG.byteSize();
+
+        if (this.nullCount() == 0 && indices.nullCount() == 0) {
+            for (long i = 0; i < outLen; i++) {
+                int rowIdx = idxData.get(ValueLayout.JAVA_INT, (idxOffset + i) * intBytes);
+                checkBounds(rowIdx);
+                long val = this.dataBuffer.get(ValueLayout.JAVA_LONG, (this.offset + rowIdx) * longBytes);
+                outData.set(ValueLayout.JAVA_LONG, i * longBytes, val);
+            }
+        } else {
+            boolean idxHasNulls = indices.nullCount() > 0;
+            boolean srcHasNulls = this.nullCount() > 0;
+            for (long i = 0; i < outLen; i++) {
+                if (idxHasNulls && indices.isNull(i)) {
+                    out.setNull(i);
+                } else {
+                    int rowIdx = idxData.get(ValueLayout.JAVA_INT, (idxOffset + i) * intBytes);
+                    if (srcHasNulls && this.isNull(rowIdx)) {
+                        out.setNull(i);
+                    } else {
+                        outData.set(ValueLayout.JAVA_LONG, i * longBytes, this.get(rowIdx));
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
     @Override public DataType type() { return DataType.INT64; }
     @Override public int bufferCount() { return 2; }
 
