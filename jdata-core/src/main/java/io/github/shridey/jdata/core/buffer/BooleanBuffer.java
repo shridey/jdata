@@ -16,7 +16,12 @@ public final class BooleanBuffer extends AbstractDataBuffer {
     private final MemorySegment dataBuffer;
 
     BooleanBuffer(String name, Arena arena, long length, long offset, MemorySegment validityBitmap, MemorySegment dataBuffer) {
-        super(name, arena, length, offset, validityBitmap);
+        this(name, arena, length, offset, validityBitmap, dataBuffer, -1L);
+    }
+
+    BooleanBuffer(String name, Arena arena, long length, long offset,
+                  MemorySegment validityBitmap, MemorySegment dataBuffer, long knownNullCount) {
+        super(name, arena, length, offset, validityBitmap, knownNullCount);
         this.dataBuffer = dataBuffer;
     }
 

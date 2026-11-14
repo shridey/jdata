@@ -20,7 +20,12 @@ public final class DictionaryBuffer extends AbstractDataBuffer {
 
     DictionaryBuffer(String name, Arena arena, long length, long offset,
                      MemorySegment validityBitmap, MemorySegment indicesBuffer, UTF8Buffer dictionary) {
-        super(name, arena, length, offset, validityBitmap);
+        this(name, arena, length, offset, validityBitmap, indicesBuffer, dictionary, -1L);
+    }
+
+    DictionaryBuffer(String name, Arena arena, long length, long offset,
+                     MemorySegment validityBitmap, MemorySegment indicesBuffer, UTF8Buffer dictionary, long knownNullCount) {
+        super(name, arena, length, offset, validityBitmap, knownNullCount);
         this.indicesBuffer = Objects.requireNonNull(indicesBuffer, "indicesBuffer cannot be null");
         this.dictionary = Objects.requireNonNull(dictionary, "dictionary cannot be null");
     }
@@ -171,7 +176,7 @@ public final class DictionaryBuffer extends AbstractDataBuffer {
      * @return a zero-copy {@link Int32Buffer} view of the dictionary codes
      */
     public Int32Buffer indices() {
-        return new Int32Buffer(this.name, this.arena, this.length, this.offset, this.validityBitmap, this.indicesBuffer);
+        return new Int32Buffer(this.name, this.arena, this.length, this.offset, this.validityBitmap, this.indicesBuffer, this.nullCount);
     }
 
     /**
@@ -290,7 +295,7 @@ public final class DictionaryBuffer extends AbstractDataBuffer {
         Objects.requireNonNull(newName, "newName cannot be null");
         return new DictionaryBuffer(
                 newName, this.arena, this.length, this.offset,
-                this.validityBitmap, this.indicesBuffer, this.dictionary
+                this.validityBitmap, this.indicesBuffer, this.dictionary, this.nullCount
         );
     }
 

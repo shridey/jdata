@@ -15,7 +15,12 @@ public final class Float64Buffer extends AbstractDataBuffer {
     private final MemorySegment dataBuffer;
 
     Float64Buffer(String name, Arena arena, long length, long offset, MemorySegment validityBitmap, MemorySegment dataBuffer) {
-        super(name, arena, length, offset, validityBitmap);
+        this(name, arena, length, offset, validityBitmap, dataBuffer, -1L);
+    }
+
+    Float64Buffer(String name, Arena arena, long length, long offset,
+                  MemorySegment validityBitmap, MemorySegment dataBuffer, long knownNullCount) {
+        super(name, arena, length, offset, validityBitmap, knownNullCount);
         this.dataBuffer = dataBuffer;
     }
 

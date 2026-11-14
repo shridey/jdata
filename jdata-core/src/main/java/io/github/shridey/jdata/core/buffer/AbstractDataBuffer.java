@@ -35,17 +35,32 @@ public abstract sealed class AbstractDataBuffer implements DataBuffer permits
     protected long nullCount = -1;
 
     /**
-     * Constructs a contiguous physical {@link AbstractDataBuffer}.
+     * Constructs a contiguous physical {@link AbstractDataBuffer} with lazy null count evaluation.
      *
      * @param name           the non-null column name
      * @param arena          the governing memory arena
      * @param length         the logical element count (must be {@code >= 0})
      * @param offset         the starting physical element offset (must be {@code >= 0})
      * @param validityBitmap the validity bitmap segment (or {@link MemorySegment#NULL})
+     */
+    protected AbstractDataBuffer(String name, Arena arena, long length, long offset, MemorySegment validityBitmap) {
+        this(name, arena, length, offset, validityBitmap, -1L);
+    }
+
+    /**
+     * Constructs a contiguous physical {@link AbstractDataBuffer} with an optional pre-computed null count.
+     *
+     * @param name           the non-null column name
+     * @param arena          the governing memory arena
+     * @param length         the logical element count (must be {@code >= 0})
+     * @param offset         the starting physical element offset (must be {@code >= 0})
+     * @param validityBitmap the validity bitmap segment (or {@link MemorySegment#NULL})
+     * @param knownNullCount the known null count ({@code >= 0}), or {@code -1} if unknown
      * @throws NullPointerException     if {@code name}, {@code arena}, or {@code validityBitmap} is {@code null}
      * @throws IllegalArgumentException if {@code length < 0} or {@code offset < 0}
      */
-    protected AbstractDataBuffer(String name, Arena arena, long length, long offset, MemorySegment validityBitmap) {
+    protected AbstractDataBuffer(String name, Arena arena, long length, long offset,
+                                 MemorySegment validityBitmap, long knownNullCount) {
         this.name = Objects.requireNonNull(name, "Column name cannot be null");
         this.arena = Objects.requireNonNull(arena, "Arena cannot be null");
         if (length < 0) {
@@ -57,8 +72,10 @@ public abstract sealed class AbstractDataBuffer implements DataBuffer permits
         this.length = length;
         this.offset = offset;
         this.validityBitmap = Objects.requireNonNull(validityBitmap, "validityBitmap cannot be null");
-        if (lacksValidityBitmap()) {
+        if (lacksValidityBitmap() || length == 0) {
             this.nullCount = 0L;
+        } else if (knownNullCount >= 0) {
+            this.nullCount = knownNullCount;
         }
     }
 

@@ -8,6 +8,8 @@ import io.github.shridey.jdata.core.buffer.DictionaryBuffer;
 import io.github.shridey.jdata.core.buffer.Float64Buffer;
 import io.github.shridey.jdata.core.buffer.Int32Buffer;
 import io.github.shridey.jdata.core.buffer.Int64Buffer;
+import io.github.shridey.jdata.core.buffer.UTF8Buffer;
+import io.github.shridey.jdata.core.buffer.UTF8BufferBuilder;
 import io.github.shridey.jdata.core.ffi.ArrowCExporter;
 import io.github.shridey.jdata.core.ffi.ArrowCImporter;
 import io.github.shridey.jdata.core.ffi.ArrowTableStream;
@@ -21,6 +23,7 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -28,6 +31,7 @@ import java.util.Locale;
 import java.util.NoSuchElementException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OneBillionRowsBenchmarkTest {
 
@@ -41,9 +45,10 @@ class OneBillionRowsBenchmarkTest {
         results.add(benchmarkOneBillionRowsBitmapsAnd());
         results.add(benchmarkOneBillionRowsFfiArrowArrayStream());
         results.add(benchmarkOneBillionRowsChunkedTableSlicing());
+        results.add(benchmarkOneBillionRowsChunkedUtf8AndDictTakeSimd());
 
         printReport(results);
-        assertEquals(4, results.size());
+        assertEquals(5, results.size());
     }
 
     private static BillionRowResult benchmarkOneBillionRowsPooledSlabAllocation() {
@@ -51,7 +56,6 @@ class OneBillionRowsBenchmarkTest {
         int batchRows = 1_000_000; // 1,000 * 1,000,000 = 1,000,000,000 rows (8.0 GB logical Int64 data)
 
         try (ArrowMemoryPool pool = new ArrowMemoryPool(16L * 1024L * 1024L, 2)) {
-            // Warmup pass (50 batches)
             for (int w = 0; w < 50; w++) {
                 try (PooledArena arena = pool.acquireArena()) {
                     Int64Buffer buf = Int64Buffer.allocate(arena, "id", batchRows);
@@ -101,7 +105,6 @@ class OneBillionRowsBenchmarkTest {
             left.set(batchRows - 1, true);
             right.set(batchRows - 1, true);
 
-            // Warmup pass
             for (int w = 0; w < 5; w++) {
                 try (PooledArena arena = pool.acquireArena()) {
                     BooleanBuffer out = Bitmaps.and(left, right, "and", arena);
@@ -184,8 +187,9 @@ class OneBillionRowsBenchmarkTest {
                         if (batch == null) {
                             break;
                         }
-                        ImportedDataBuffer impCol2 = (ImportedDataBuffer) batch.getColumn(1);
-                        checksum += impCol2.getLong(batchRows - 1);
+                        // Exercise v0.3.1 zero-copy native view on ImportedDataBuffer
+                        Int64Buffer nativeCol2View = ((ImportedDataBuffer) batch.getColumn(1)).asInt64Buffer();
+                        checksum += nativeCol2View.get(batchRows - 1);
                         streamedRows += batch.rowCount();
                     }
                 }
@@ -237,15 +241,12 @@ class OneBillionRowsBenchmarkTest {
 
             long t0 = System.nanoTime();
 
-            // 1. O(1) Zero-Copy Concatenation into a 1,000,000,000-row Table
             Table oneBillionRowTable = Table.concat(thousandTables);
             assertEquals(ONE_BILLION_ROWS, oneBillionRowTable.rowCount());
 
-            // 2. Zero-Copy Cross-Chunk Slicing of 500,000,000 rows from the middle of the 1B-row Table
             Table halfBillionSlice = oneBillionRowTable.slice(250_000_000L, 500_000_000L);
             assertEquals(500_000_000L, halfBillionSlice.rowCount());
 
-            // 3. O(log C) binary-searched random lookups across the 1-billion-row virtual space
             ChunkedBuffer chunkedIds = (ChunkedBuffer) oneBillionRowTable.getColumn("id");
             ChunkedBuffer chunkedRegions = (ChunkedBuffer) oneBillionRowTable.getColumn("region");
             long lookupChecksum = 0L;
@@ -259,6 +260,77 @@ class OneBillionRowsBenchmarkTest {
 
             return new BillionRowResult(
                     "1B-Row Chunked Table Concat + Slice + Lookup",
+                    ONE_BILLION_ROWS,
+                    elapsedMs,
+                    pool.totalAllocatedSlabBytes() / (1024.0 * 1024.0)
+            );
+        }
+    }
+
+    private static BillionRowResult benchmarkOneBillionRowsChunkedUtf8AndDictTakeSimd() {
+        int chunks = 1_000;
+        int chunkRows = 1_000_000; // 1,000 * 1,000,000 = 1,000,000,000 rows (~12 GB logical UTF-8 + Dict)
+
+        try (ArrowMemoryPool pool = new ArrowMemoryPool(32L * 1024L * 1024L, 2);
+             PooledArena arena = pool.acquireArena()) {
+
+            // Build one 1M-row UTF8 chunk (8 MB of UTF-8 bytes) and one 1M-row Dictionary chunk
+            UTF8BufferBuilder utf8Builder = new UTF8BufferBuilder(arena, "endpoint", chunkRows, chunkRows * 8L);
+            for (int i = 0; i < chunkRows; i++) {
+                utf8Builder.append((i & 1) == 0 ? "/api/v1/" : "/healthz");
+            }
+            UTF8Buffer utf8Chunk = utf8Builder.build();
+
+            Int32Buffer codeChunk = Int32Buffer.allocate(arena, "region", chunkRows);
+            DictionaryBuffer dictChunk = DictionaryBuffer.ofIndices(
+                    "region",
+                    codeChunk,
+                    DictionaryBuffer.allocate(arena, "dict", new String[]{"APAC", "EMEA", "AMER"}).dictionary()
+            );
+
+            Schema schema = new Schema(List.of(
+                    new Field("endpoint", DataType.UTF8, false),
+                    new Field("region", DataType.DICTIONARY, false)
+            ));
+            Table singleChunkTable = new Table(schema, List.of(utf8Chunk, dictChunk));
+
+            List<Table> thousandTables = new ArrayList<>(chunks);
+            for (int i = 0; i < chunks; i++) {
+                thousandTables.add(singleChunkTable);
+            }
+            Table oneBillionStringTable = Table.concat(thousandTables);
+
+            // Select 10,000 monotonically increasing rows spanning all 1,000 chunks across [0 .. 1,000,000,000)
+            int selectCount = 10_000;
+            Int32Buffer selectionIndices = Int32Buffer.allocate(arena, "sel", selectCount);
+            for (int i = 0; i < selectCount; i++) {
+                selectionIndices.set(i, i * 100_000);
+            }
+            MemorySegment targetBytes = MemorySegment.ofArray("/api/v1/".getBytes(StandardCharsets.UTF_8));
+
+            long t0 = System.nanoTime();
+
+            // v0.3.1: Direct chunked UTF8 & Dictionary take() with O(1) monotonic chunk hints and ZERO compaction!
+            Table gathered = oneBillionStringTable.take(selectionIndices, arena);
+            UTF8Buffer gatheredUtf8 = (UTF8Buffer) gathered.getColumn("endpoint");
+            DictionaryBuffer gatheredDict = (DictionaryBuffer) gathered.getColumn("region");
+
+            // v0.3.1: Verify gathered strings via zero-allocation off-heap SIMD equalsBytes() and compareBytes()
+            int matches = 0;
+            for (int i = 0; i < selectCount; i++) {
+                if (gatheredUtf8.equalsBytes(i, targetBytes)) {
+                    matches++;
+                }
+            }
+            assertEquals(0, gatheredUtf8.compareBytes(0, gatheredUtf8, selectCount - 1));
+            assertEquals(1L, gatheredDict.cardinality());
+
+            double elapsedMs = (System.nanoTime() - t0) / 1_000_000.0;
+            assertEquals(selectCount, matches);
+            assertTrue(pool.totalAllocatedSlabs() <= 2);
+
+            return new BillionRowResult(
+                    "1B-Row Chunked UTF8/Dict take() + SIMD Scan",
                     ONE_BILLION_ROWS,
                     elapsedMs,
                     pool.totalAllocatedSlabBytes() / (1024.0 * 1024.0)

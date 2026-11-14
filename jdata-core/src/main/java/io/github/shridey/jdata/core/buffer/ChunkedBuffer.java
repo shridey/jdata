@@ -3,6 +3,7 @@ package io.github.shridey.jdata.core.buffer;
 import io.github.shridey.jdata.core.DataBuffer;
 import io.github.shridey.jdata.core.DataType;
 import io.github.shridey.jdata.core.ffi.ImportedDataBuffer;
+import io.github.shridey.jdata.core.internal.ArrowMemoryAllocator;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -168,6 +169,27 @@ public final class ChunkedBuffer implements DataBuffer {
     }
 
     /**
+     * Resolves the chunk index for {@code index} in O(1) time when {@code index} falls in {@code hintChunk}
+     * or {@code hintChunk + 1} (the common case for monotonic filter SelectionVectors), falling back to binary search.
+     */
+    private int locateChunkWithHint(long index, int hintChunk) {
+        Objects.checkIndex(index, this.length);
+        int size = chunks.size();
+        if (size == 1) {
+            return 0;
+        }
+        if (index >= chunkOffsets[hintChunk] && index < chunkOffsets[hintChunk + 1]) {
+            return hintChunk;
+        }
+        int nextChunk = hintChunk + 1;
+        if (nextChunk < size && index >= chunkOffsets[nextChunk] && index < chunkOffsets[nextChunk + 1]) {
+            return nextChunk;
+        }
+        int pos = Arrays.binarySearch(chunkOffsets, 0, size, index);
+        return pos >= 0 ? pos : (-pos - 2);
+    }
+
+    /**
      * Reads the 32-bit integer at the given logical row index via O(log C) chunk resolution.
      *
      * @param index the zero-based logical index
@@ -177,7 +199,11 @@ public final class ChunkedBuffer implements DataBuffer {
         if (type != DataType.INT32) throw new IllegalStateException("Buffer is not INT32, is " + type);
         int c = locateChunk(index);
         long localIdx = index - chunkOffsets[c];
-        return switch (chunks.get(c)) {
+        return readChunkInt(chunks.get(c), localIdx);
+    }
+
+    private static int readChunkInt(DataBuffer chunk, long localIdx) {
+        return switch (chunk) {
             case Int32Buffer b -> b.get(localIdx);
             case ImportedDataBuffer b -> b.getInt(localIdx);
             default -> throw new IllegalStateException("Unexpected INT32 chunk implementation");
@@ -196,7 +222,11 @@ public final class ChunkedBuffer implements DataBuffer {
         }
         int c = locateChunk(index);
         long localIdx = index - chunkOffsets[c];
-        return switch (chunks.get(c)) {
+        return readChunkLong(chunks.get(c), localIdx);
+    }
+
+    private static long readChunkLong(DataBuffer chunk, long localIdx) {
+        return switch (chunk) {
             case Int64Buffer b -> b.get(localIdx);
             case ImportedDataBuffer b -> b.getLong(localIdx);
             default -> throw new IllegalStateException("Unexpected INT64 chunk implementation");
@@ -213,7 +243,11 @@ public final class ChunkedBuffer implements DataBuffer {
         if (type != DataType.FLOAT32) throw new IllegalStateException("Buffer is not FLOAT32, is " + type);
         int c = locateChunk(index);
         long localIdx = index - chunkOffsets[c];
-        return switch (chunks.get(c)) {
+        return readChunkFloat(chunks.get(c), localIdx);
+    }
+
+    private static float readChunkFloat(DataBuffer chunk, long localIdx) {
+        return switch (chunk) {
             case Float32Buffer b -> b.get(localIdx);
             case ImportedDataBuffer b -> b.getFloat(localIdx);
             default -> throw new IllegalStateException("Unexpected FLOAT32 chunk implementation");
@@ -230,7 +264,11 @@ public final class ChunkedBuffer implements DataBuffer {
         if (type != DataType.FLOAT64) throw new IllegalStateException("Buffer is not FLOAT64, is " + type);
         int c = locateChunk(index);
         long localIdx = index - chunkOffsets[c];
-        return switch (chunks.get(c)) {
+        return readChunkDouble(chunks.get(c), localIdx);
+    }
+
+    private static double readChunkDouble(DataBuffer chunk, long localIdx) {
+        return switch (chunk) {
             case Float64Buffer b -> b.get(localIdx);
             case ImportedDataBuffer b -> b.getDouble(localIdx);
             default -> throw new IllegalStateException("Unexpected FLOAT64 chunk implementation");
@@ -247,7 +285,11 @@ public final class ChunkedBuffer implements DataBuffer {
         if (type != DataType.BOOLEAN) throw new IllegalStateException("Buffer is not BOOLEAN, is " + type);
         int c = locateChunk(index);
         long localIdx = index - chunkOffsets[c];
-        return switch (chunks.get(c)) {
+        return readChunkBoolean(chunks.get(c), localIdx);
+    }
+
+    private static boolean readChunkBoolean(DataBuffer chunk, long localIdx) {
+        return switch (chunk) {
             case BooleanBuffer b -> b.get(localIdx);
             case ImportedDataBuffer b -> b.getBoolean(localIdx);
             default -> throw new IllegalStateException("Unexpected BOOLEAN chunk implementation");
@@ -395,6 +437,7 @@ public final class ChunkedBuffer implements DataBuffer {
         long outLen = indices.length();
         boolean idxHasNulls = indices.nullCount() > 0;
         boolean srcHasNulls = this.nullCount() > 0;
+        int hint = 0;
 
         return switch (this.type) {
             case INT32 -> {
@@ -403,8 +446,11 @@ public final class ChunkedBuffer implements DataBuffer {
                     if (idxHasNulls && indices.isNull(i)) out.setNull(i);
                     else {
                         int r = indices.get(i);
-                        if (srcHasNulls && isNull(r)) out.setNull(i);
-                        else out.set(i, getInt(r));
+                        hint = locateChunkWithHint(r, hint);
+                        DataBuffer ch = chunks.get(hint);
+                        long local = r - chunkOffsets[hint];
+                        if (srcHasNulls && ch.isNull(local)) out.setNull(i);
+                        else out.set(i, readChunkInt(ch, local));
                     }
                 }
                 yield out;
@@ -415,8 +461,11 @@ public final class ChunkedBuffer implements DataBuffer {
                     if (idxHasNulls && indices.isNull(i)) out.setNull(i);
                     else {
                         int r = indices.get(i);
-                        if (srcHasNulls && isNull(r)) out.setNull(i);
-                        else out.set(i, getLong(r));
+                        hint = locateChunkWithHint(r, hint);
+                        DataBuffer ch = chunks.get(hint);
+                        long local = r - chunkOffsets[hint];
+                        if (srcHasNulls && ch.isNull(local)) out.setNull(i);
+                        else out.set(i, readChunkLong(ch, local));
                     }
                 }
                 yield out;
@@ -427,8 +476,11 @@ public final class ChunkedBuffer implements DataBuffer {
                     if (idxHasNulls && indices.isNull(i)) out.setNull(i);
                     else {
                         int r = indices.get(i);
-                        if (srcHasNulls && isNull(r)) out.setNull(i);
-                        else out.set(i, getFloat(r));
+                        hint = locateChunkWithHint(r, hint);
+                        DataBuffer ch = chunks.get(hint);
+                        long local = r - chunkOffsets[hint];
+                        if (srcHasNulls && ch.isNull(local)) out.setNull(i);
+                        else out.set(i, readChunkFloat(ch, local));
                     }
                 }
                 yield out;
@@ -439,8 +491,11 @@ public final class ChunkedBuffer implements DataBuffer {
                     if (idxHasNulls && indices.isNull(i)) out.setNull(i);
                     else {
                         int r = indices.get(i);
-                        if (srcHasNulls && isNull(r)) out.setNull(i);
-                        else out.set(i, getDouble(r));
+                        hint = locateChunkWithHint(r, hint);
+                        DataBuffer ch = chunks.get(hint);
+                        long local = r - chunkOffsets[hint];
+                        if (srcHasNulls && ch.isNull(local)) out.setNull(i);
+                        else out.set(i, readChunkDouble(ch, local));
                     }
                 }
                 yield out;
@@ -451,15 +506,118 @@ public final class ChunkedBuffer implements DataBuffer {
                     if (idxHasNulls && indices.isNull(i)) out.setNull(i);
                     else {
                         int r = indices.get(i);
-                        if (srcHasNulls && isNull(r)) out.setNull(i);
-                        else out.set(i, getBoolean(r));
+                        hint = locateChunkWithHint(r, hint);
+                        DataBuffer ch = chunks.get(hint);
+                        long local = r - chunkOffsets[hint];
+                        if (srcHasNulls && ch.isNull(local)) out.setNull(i);
+                        else out.set(i, readChunkBoolean(ch, local));
                     }
                 }
                 yield out;
             }
-            case UTF8, DICTIONARY -> compact(targetArena).take(indices, targetArena);
+            case UTF8 -> takeChunkedUtf8(indices, targetArena, outLen, idxHasNulls, srcHasNulls);
+            case DICTIONARY -> takeChunkedDictionary(indices, targetArena, outLen, idxHasNulls, srcHasNulls);
             default -> throw new UnsupportedOperationException("take() not supported for chunked type: " + this.type);
         };
+    }
+
+    private UTF8Buffer takeChunkedUtf8(Int32Buffer indices, Arena targetArena,
+                                       long outLen, boolean idxHasNulls, boolean srcHasNulls) {
+        long intBytes = ValueLayout.JAVA_INT.byteSize();
+        long totalBytes = 0;
+        int hint = 0;
+
+        // Pass 1: Compute exact UTF-8 byte length of selected rows across chunks without compacting
+        for (long i = 0; i < outLen; i++) {
+            if (!idxHasNulls || !indices.isNull(i)) {
+                int r = indices.get(i);
+                hint = locateChunkWithHint(r, hint);
+                DataBuffer ch = chunks.get(hint);
+                long local = r - chunkOffsets[hint];
+                if (!srcHasNulls || !ch.isNull(local)) {
+                    long phys = ch.offset() + local;
+                    MemorySegment chOffsets = ch.buffer(1);
+                    int s = chOffsets.get(ValueLayout.JAVA_INT, phys * intBytes);
+                    int e = chOffsets.get(ValueLayout.JAVA_INT, (phys + 1L) * intBytes);
+                    totalBytes += (e - s);
+                }
+            }
+        }
+
+        if (totalBytes > Integer.MAX_VALUE) {
+            throw new IllegalStateException("Gathered UTF8Buffer exceeds Integer.MAX_VALUE bytes.");
+        }
+
+        MemorySegment outValidity = ArrowMemoryAllocator.allocateAligned(targetArena, (outLen + 7L) >>> 3);
+        MemorySegment outOffsets = ArrowMemoryAllocator.allocateAligned(targetArena, Math.multiplyExact(outLen + 1L, intBytes));
+        MemorySegment outData = ArrowMemoryAllocator.allocateAligned(targetArena, totalBytes);
+
+        UTF8Buffer out = new UTF8Buffer(this.name, targetArena, outLen, 0, outValidity, outOffsets, outData, 0L);
+        out.setAllValid();
+
+        // Pass 2: Copy only the selected UTF-8 slices directly from their respective chunks
+        int cursor = 0;
+        hint = 0;
+        for (long i = 0; i < outLen; i++) {
+            outOffsets.set(ValueLayout.JAVA_INT, i * intBytes, cursor);
+            if (idxHasNulls && indices.isNull(i)) {
+                out.setNull(i);
+            } else {
+                int r = indices.get(i);
+                hint = locateChunkWithHint(r, hint);
+                DataBuffer ch = chunks.get(hint);
+                long local = r - chunkOffsets[hint];
+                if (srcHasNulls && ch.isNull(local)) {
+                    out.setNull(i);
+                } else {
+                    long phys = ch.offset() + local;
+                    MemorySegment chOffsets = ch.buffer(1);
+                    int s = chOffsets.get(ValueLayout.JAVA_INT, phys * intBytes);
+                    int e = chOffsets.get(ValueLayout.JAVA_INT, (phys + 1L) * intBytes);
+                    int len = e - s;
+                    if (len > 0) {
+                        MemorySegment.copy(ch.buffer(2), s, outData, cursor, len);
+                        cursor += len;
+                    }
+                }
+            }
+        }
+        outOffsets.set(ValueLayout.JAVA_INT, outLen * intBytes, cursor);
+        return out;
+    }
+
+    private DictionaryBuffer takeChunkedDictionary(Int32Buffer indices, Arena targetArena,
+                                                   long outLen, boolean idxHasNulls, boolean srcHasNulls) {
+        DictionaryBufferBuilder builder = new DictionaryBufferBuilder(targetArena, this.name, outLen);
+        long intBytes = ValueLayout.JAVA_INT.byteSize();
+        int hint = 0;
+
+        for (long i = 0; i < outLen; i++) {
+            if (idxHasNulls && indices.isNull(i)) {
+                builder.appendNull();
+            } else {
+                int r = indices.get(i);
+                hint = locateChunkWithHint(r, hint);
+                DataBuffer ch = chunks.get(hint);
+                long local = r - chunkOffsets[hint];
+                if (srcHasNulls && ch.isNull(local)) {
+                    builder.appendNull();
+                } else {
+                    DataBuffer chDict = switch (ch) {
+                        case DictionaryBuffer db -> db.dictionary();
+                        case ImportedDataBuffer idb when idb.dictionary() != null -> idb.dictionary();
+                        default -> throw new IllegalStateException("Unexpected DICTIONARY chunk implementation");
+                    };
+                    int code = ch.buffer(1).get(ValueLayout.JAVA_INT, (ch.offset() + local) * intBytes);
+                    long dictPhys = chDict.offset() + code;
+                    MemorySegment dictOffsets = chDict.buffer(1);
+                    int s = dictOffsets.get(ValueLayout.JAVA_INT, dictPhys * intBytes);
+                    int e = dictOffsets.get(ValueLayout.JAVA_INT, (dictPhys + 1L) * intBytes);
+                    builder.appendRawUtf8Entry(chDict.buffer(2), s, e - s);
+                }
+            }
+        }
+        return builder.build();
     }
 
     @Override

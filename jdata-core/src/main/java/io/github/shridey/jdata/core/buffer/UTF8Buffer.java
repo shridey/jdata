@@ -20,7 +20,12 @@ public final class UTF8Buffer extends AbstractDataBuffer {
 
     UTF8Buffer(String name, Arena arena, long length, long offset, MemorySegment validityBitmap,
                MemorySegment offsetsBuffer, MemorySegment dataBuffer) {
-        super(name, arena, length, offset, validityBitmap);
+        this(name, arena, length, offset, validityBitmap, offsetsBuffer, dataBuffer, -1L);
+    }
+
+    UTF8Buffer(String name, Arena arena, long length, long offset, MemorySegment validityBitmap,
+               MemorySegment offsetsBuffer, MemorySegment dataBuffer, long knownNullCount) {
+        super(name, arena, length, offset, validityBitmap, knownNullCount);
         this.offsetsBuffer = offsetsBuffer;
         this.dataBuffer = dataBuffer;
     }
@@ -51,7 +56,7 @@ public final class UTF8Buffer extends AbstractDataBuffer {
         MemorySegment offsetsBuffer = ArrowMemoryAllocator.allocateAligned(arena, offsetsBytes);
         MemorySegment dataBuffer = ArrowMemoryAllocator.allocateAligned(arena, totalDataBytes);
 
-        UTF8Buffer buffer = new UTF8Buffer(name, arena, length, 0, validityBitmap, offsetsBuffer, dataBuffer);
+        UTF8Buffer buffer = new UTF8Buffer(name, arena, length, 0, validityBitmap, offsetsBuffer, dataBuffer, 0L);
         buffer.setAllValid();
 
         int currentOffset = 0;
@@ -164,6 +169,117 @@ public final class UTF8Buffer extends AbstractDataBuffer {
     }
 
     /**
+     * Returns the UTF-8 byte length of the string at {@code index} in O(1) time without heap allocation,
+     * or {@code 0} if the slot is null.
+     *
+     * @param index the zero-based logical index
+     * @return the UTF-8 byte length, or {@code 0} if null
+     * @throws IndexOutOfBoundsException if {@code index < 0 || index >= length()}
+     */
+    public int getByteLength(long index) {
+        checkBounds(index);
+        if (isNull(index)) {
+            return 0;
+        }
+        long physicalIndex = index + this.offset;
+        long startOffsetByteIndex = physicalIndex * ValueLayout.JAVA_INT.byteSize();
+        int startByte = offsetsBuffer.get(ValueLayout.JAVA_INT, startOffsetByteIndex);
+        int endByte = offsetsBuffer.get(ValueLayout.JAVA_INT, startOffsetByteIndex + ValueLayout.JAVA_INT.byteSize());
+        return endByte - startByte;
+    }
+
+    /**
+     * Returns a zero-copy off-heap {@link MemorySegment} slice over the UTF-8 bytes at {@code index},
+     * or {@link MemorySegment#NULL} if the slot is null.
+     *
+     * @param index the zero-based logical index
+     * @return the UTF-8 byte slice segment, or {@link MemorySegment#NULL} if null
+     * @throws IndexOutOfBoundsException if {@code index < 0 || index >= length()}
+     */
+    public MemorySegment getByteSlice(long index) {
+        checkBounds(index);
+        if (isNull(index)) {
+            return MemorySegment.NULL;
+        }
+        long physicalIndex = index + this.offset;
+        long startOffsetByteIndex = physicalIndex * ValueLayout.JAVA_INT.byteSize();
+        int startByte = offsetsBuffer.get(ValueLayout.JAVA_INT, startOffsetByteIndex);
+        int endByte = offsetsBuffer.get(ValueLayout.JAVA_INT, startOffsetByteIndex + ValueLayout.JAVA_INT.byteSize());
+        return dataBuffer.asSlice(startByte, endByte - startByte);
+    }
+
+    /**
+     * Compares the UTF-8 bytes at {@code index} against {@code targetUtf8} in off-heap memory
+     * using SIMD-accelerated {@link MemorySegment#mismatch} without allocating a Java {@link String}.
+     *
+     * @param index      the zero-based logical index
+     * @param targetUtf8 the target UTF-8 byte segment to compare against
+     * @return {@code true} if the slot is non-null and its UTF-8 bytes equal {@code targetUtf8}
+     */
+    public boolean equalsBytes(long index, MemorySegment targetUtf8) {
+        Objects.requireNonNull(targetUtf8, "targetUtf8 cannot be null");
+        checkBounds(index);
+        if (isNull(index)) {
+            return false;
+        }
+        long physicalIndex = index + this.offset;
+        long startOffsetByteIndex = physicalIndex * ValueLayout.JAVA_INT.byteSize();
+        int startByte = offsetsBuffer.get(ValueLayout.JAVA_INT, startOffsetByteIndex);
+        int endByte = offsetsBuffer.get(ValueLayout.JAVA_INT, startOffsetByteIndex + ValueLayout.JAVA_INT.byteSize());
+        int len = endByte - startByte;
+        if (len != targetUtf8.byteSize()) {
+            return false;
+        }
+        return len == 0 || MemorySegment.mismatch(dataBuffer, startByte, endByte, targetUtf8, 0, len) == -1L;
+    }
+
+    /**
+     * Lexicographically compares the unsigned UTF-8 bytes at {@code index} in this buffer with
+     * {@code otherIndex} in {@code other} using {@link MemorySegment#mismatch} to jump directly to
+     * the first differing byte. Nulls sort last.
+     *
+     * @param index      the zero-based logical index in this buffer
+     * @param other      the other {@link UTF8Buffer}
+     * @param otherIndex the zero-based logical index in {@code other}
+     * @return a negative integer, zero, or a positive integer as this slice is less than, equal to, or greater than the other
+     */
+    public int compareBytes(long index, UTF8Buffer other, long otherIndex) {
+        Objects.requireNonNull(other, "other buffer cannot be null");
+        checkBounds(index);
+        other.checkBounds(otherIndex);
+
+        boolean thisNull = this.isNull(index);
+        boolean otherNull = other.isNull(otherIndex);
+        if (thisNull || otherNull) {
+            return Boolean.compare(thisNull, otherNull);
+        }
+
+        long thisPhys = (index + this.offset) * ValueLayout.JAVA_INT.byteSize();
+        int thisStart = this.offsetsBuffer.get(ValueLayout.JAVA_INT, thisPhys);
+        int thisEnd = this.offsetsBuffer.get(ValueLayout.JAVA_INT, thisPhys + ValueLayout.JAVA_INT.byteSize());
+        int thisLen = thisEnd - thisStart;
+
+        long otherPhys = (otherIndex + other.offset) * ValueLayout.JAVA_INT.byteSize();
+        int otherStart = other.offsetsBuffer.get(ValueLayout.JAVA_INT, otherPhys);
+        int otherEnd = other.offsetsBuffer.get(ValueLayout.JAVA_INT, otherPhys + ValueLayout.JAVA_INT.byteSize());
+        int otherLen = otherEnd - otherStart;
+
+        int minLen = Math.min(thisLen, otherLen);
+        if (minLen > 0) {
+            long mismatchOffset = MemorySegment.mismatch(
+                    this.dataBuffer, thisStart, thisStart + minLen,
+                    other.dataBuffer, otherStart, otherStart + minLen
+            );
+            if (mismatchOffset != -1L) {
+                int b1 = Byte.toUnsignedInt(this.dataBuffer.get(ValueLayout.JAVA_BYTE, thisStart + mismatchOffset));
+                int b2 = Byte.toUnsignedInt(other.dataBuffer.get(ValueLayout.JAVA_BYTE, otherStart + mismatchOffset));
+                return Integer.compare(b1, b2);
+            }
+        }
+        return Integer.compare(thisLen, otherLen);
+    }
+
+    /**
      * Decodes and returns the UTF-8 {@link String} at the specified logical index, or {@code null} if null.
      *
      * @param index the zero-based logical index
@@ -235,7 +351,7 @@ public final class UTF8Buffer extends AbstractDataBuffer {
     public UTF8Buffer withName(String newName) {
         Objects.requireNonNull(newName, "newName cannot be null");
         return new UTF8Buffer(newName, this.arena, this.length, this.offset,
-                this.validityBitmap, this.offsetsBuffer, this.dataBuffer);
+                this.validityBitmap, this.offsetsBuffer, this.dataBuffer, this.nullCount);
     }
 
     @Override
@@ -271,7 +387,7 @@ public final class UTF8Buffer extends AbstractDataBuffer {
         MemorySegment outOffsets = ArrowMemoryAllocator.allocateAligned(targetArena, Math.multiplyExact(outLen + 1L, intBytes));
         MemorySegment outData = ArrowMemoryAllocator.allocateAligned(targetArena, totalBytes);
 
-        UTF8Buffer out = new UTF8Buffer(this.name, targetArena, outLen, 0, outValidity, outOffsets, outData);
+        UTF8Buffer out = new UTF8Buffer(this.name, targetArena, outLen, 0, outValidity, outOffsets, outData, 0L);
         out.setAllValid();
 
         // Pass 2: Copy UTF-8 byte ranges directly off-heap

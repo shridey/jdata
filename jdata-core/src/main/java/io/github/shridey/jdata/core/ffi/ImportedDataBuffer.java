@@ -23,14 +23,12 @@ public final class ImportedDataBuffer extends AbstractDataBuffer {
 
     ImportedDataBuffer(String name, Arena arena, DataType type, long length, long offset,
                        long importedNullCount, MemorySegment[] buffers, ImportedDataBuffer dictionary) {
-        super(name, arena, length, offset, buffers.length > 0 ? buffers[0] : MemorySegment.NULL);
+        super(name, arena, length, offset, buffers.length > 0 ? buffers[0] : MemorySegment.NULL, importedNullCount);
         this.type = type;
         this.buffers = buffers;
         this.dictionary = dictionary;
 
-        if (importedNullCount >= 0) {
-            this.nullCount = importedNullCount;
-        } else {
+        if (this.nullCount < 0) {
             this.nullCount();
         }
     }
@@ -63,11 +61,122 @@ public final class ImportedDataBuffer extends AbstractDataBuffer {
         return dictionary;
     }
 
+    /**
+     * Returns an O(1) zero-copy {@link Int32Buffer} view over this imported buffer's memory segments.
+     *
+     * @return a zero-copy {@link Int32Buffer} view
+     * @throws IllegalStateException if this buffer is not of type {@link DataType#INT32}
+     */
+    public Int32Buffer asInt32Buffer() {
+        if (type != DataType.INT32) {
+            throw new IllegalStateException("Buffer is not INT32, is " + type);
+        }
+        return Int32Buffer.wrap(name, arena, length, offset, buffers[0], buffers[1]);
+    }
+
+    /**
+     * Returns an O(1) zero-copy {@link Int64Buffer} view over this imported buffer's memory segments.
+     *
+     * @return a zero-copy {@link Int64Buffer} view
+     * @throws IllegalStateException if this buffer is not {@code INT64}, {@code TIMESTAMP_MS}, or {@code TIMESTAMP_US}
+     */
+    public Int64Buffer asInt64Buffer() {
+        if (type != DataType.INT64 && type != DataType.TIMESTAMP_MS && type != DataType.TIMESTAMP_US) {
+            throw new IllegalStateException("Buffer is not INT64, is " + type);
+        }
+        return Int64Buffer.wrap(name, arena, length, offset, buffers[0], buffers[1]);
+    }
+
+    /**
+     * Returns an O(1) zero-copy {@link Float32Buffer} view over this imported buffer's memory segments.
+     *
+     * @return a zero-copy {@link Float32Buffer} view
+     * @throws IllegalStateException if this buffer is not of type {@link DataType#FLOAT32}
+     */
+    public Float32Buffer asFloat32Buffer() {
+        if (type != DataType.FLOAT32) {
+            throw new IllegalStateException("Buffer is not FLOAT32, is " + type);
+        }
+        return Float32Buffer.wrap(name, arena, length, offset, buffers[0], buffers[1]);
+    }
+
+    /**
+     * Returns an O(1) zero-copy {@link Float64Buffer} view over this imported buffer's memory segments.
+     *
+     * @return a zero-copy {@link Float64Buffer} view
+     * @throws IllegalStateException if this buffer is not of type {@link DataType#FLOAT64}
+     */
+    public Float64Buffer asFloat64Buffer() {
+        if (type != DataType.FLOAT64) {
+            throw new IllegalStateException("Buffer is not FLOAT64, is " + type);
+        }
+        return Float64Buffer.wrap(name, arena, length, offset, buffers[0], buffers[1]);
+    }
+
+    /**
+     * Returns an O(1) zero-copy {@link BooleanBuffer} view over this imported buffer's memory segments.
+     *
+     * @return a zero-copy {@link BooleanBuffer} view
+     * @throws IllegalStateException if this buffer is not of type {@link DataType#BOOLEAN}
+     */
+    public BooleanBuffer asBooleanBuffer() {
+        if (type != DataType.BOOLEAN) {
+            throw new IllegalStateException("Buffer is not BOOLEAN, is " + type);
+        }
+        return BooleanBuffer.wrap(name, arena, length, offset, buffers[0], buffers[1]);
+    }
+
+    /**
+     * Returns an O(1) zero-copy {@link UTF8Buffer} view over this imported buffer's memory segments.
+     *
+     * @return a zero-copy {@link UTF8Buffer} view
+     * @throws IllegalStateException if this buffer is not of type {@link DataType#UTF8}
+     */
+    public UTF8Buffer asUTF8Buffer() {
+        if (type != DataType.UTF8) {
+            throw new IllegalStateException("Buffer is not UTF8, is " + type);
+        }
+        return UTF8Buffer.wrap(name, arena, length, offset, buffers[0], buffers[1], buffers[2]);
+    }
+
+    /**
+     * Returns an O(1) zero-copy {@link DictionaryBuffer} view over this imported buffer's memory segments.
+     *
+     * @return a zero-copy {@link DictionaryBuffer} view
+     * @throws IllegalStateException if this buffer is not of type {@link DataType#DICTIONARY}
+     */
+    public DictionaryBuffer asDictionaryBuffer() {
+        if (type != DataType.DICTIONARY || dictionary == null) {
+            throw new IllegalStateException("Buffer is not DICTIONARY, is " + type);
+        }
+        return DictionaryBuffer.wrap(name, arena, length, offset, buffers[0], buffers[1], dictionary.asUTF8Buffer());
+    }
+
+    /**
+     * Converts this imported buffer into its corresponding typed native {@link DataBuffer} view
+     * ({@link Int32Buffer}, {@link Int64Buffer}, {@link Float32Buffer}, {@link Float64Buffer},
+     * {@link BooleanBuffer}, {@link UTF8Buffer}, or {@link DictionaryBuffer}) in O(1) time with zero memory copying.
+     *
+     * @return a typed zero-copy {@link DataBuffer} view
+     */
+    public DataBuffer toNativeView() {
+        return switch (this.type) {
+            case INT32 -> asInt32Buffer();
+            case INT64, TIMESTAMP_MS, TIMESTAMP_US -> asInt64Buffer();
+            case FLOAT32 -> asFloat32Buffer();
+            case FLOAT64 -> asFloat64Buffer();
+            case BOOLEAN -> asBooleanBuffer();
+            case UTF8 -> asUTF8Buffer();
+            case DICTIONARY -> asDictionaryBuffer();
+            default -> throw new UnsupportedOperationException("toNativeView() not supported for imported type: " + this.type);
+        };
+    }
+
     @Override
     public AbstractBufferBuilder toBuilder(Arena targetArena) {
         return switch (this.type) {
             case INT32 -> new Int32BufferBuilder(targetArena, this.name, this.length).appendImportedBlock(this, 0, this.length);
-            case INT64 -> new Int64BufferBuilder(targetArena, this.name, this.length).appendImportedBlock(this, 0, this.length);
+            case INT64, TIMESTAMP_MS, TIMESTAMP_US -> new Int64BufferBuilder(targetArena, this.name, this.length).appendImportedBlock(this, 0, this.length);
             case FLOAT32 -> new Float32BufferBuilder(targetArena, this.name, this.length).appendImportedBlock(this, 0, this.length);
             case FLOAT64 -> new Float64BufferBuilder(targetArena, this.name, this.length).appendImportedBlock(this, 0, this.length);
             case BOOLEAN -> new BooleanBufferBuilder(targetArena, this.name, this.length).appendImportedBlock(this, 0, this.length);
@@ -110,7 +219,7 @@ public final class ImportedDataBuffer extends AbstractDataBuffer {
     public DataBuffer take(Int32Buffer indices, Arena targetArena) {
         Objects.requireNonNull(indices, "indices cannot be null");
         Objects.requireNonNull(targetArena, "targetArena cannot be null");
-        return this.toBuilder(targetArena).build().take(indices, targetArena);
+        return this.toNativeView().take(indices, targetArena);
     }
 
     /**

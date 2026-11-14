@@ -391,6 +391,13 @@ public final class DictionaryBufferBuilder extends AbstractBufferBuilder {
         return (int) h;
     }
 
+    void appendRawUtf8Entry(MemorySegment srcData, long srcStart, int byteLen) {
+        ensureLogicalCapacity(1);
+        int code = findOrInsertOffHeapBytes(srcData, srcStart, byteLen);
+        indicesBuffer.set(ValueLayout.JAVA_INT, logicalLength * ValueLayout.JAVA_INT.byteSize(), code);
+        logicalLength++;
+    }
+
     @Override
     public DictionaryBuffer build() {
         long paddedValidityBytes = ArrowMemoryAllocator.padTo64((logicalLength + 7L) >>> 3);
@@ -400,6 +407,6 @@ public final class DictionaryBufferBuilder extends AbstractBufferBuilder {
         MemorySegment sealedIndices = indicesBuffer.asSlice(0, paddedIndicesBytes);
         UTF8Buffer sealedDictionary = dictionaryBuilder.build();
 
-        return new DictionaryBuffer(name, arena, logicalLength, 0, sealedValidity, sealedIndices, sealedDictionary);
+        return new DictionaryBuffer(name, arena, logicalLength, 0, sealedValidity, sealedIndices, sealedDictionary, nullCount);
     }
 }

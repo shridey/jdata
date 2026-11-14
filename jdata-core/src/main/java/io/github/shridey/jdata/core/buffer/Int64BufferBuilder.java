@@ -153,6 +153,6 @@ public final class Int64BufferBuilder extends AbstractBufferBuilder {
         MemorySegment sealedValidity = validityBitmap.asSlice(0, paddedValidityBytes);
         MemorySegment sealedData = dataBuffer.asSlice(0, paddedDataBytes);
 
-        return new Int64Buffer(name, arena, logicalLength, 0, sealedValidity, sealedData);
+        return new Int64Buffer(name, arena, logicalLength, 0, sealedValidity, sealedData, nullCount);
     }
 }

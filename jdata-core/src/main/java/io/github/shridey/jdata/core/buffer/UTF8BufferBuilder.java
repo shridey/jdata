@@ -251,6 +251,6 @@ public final class UTF8BufferBuilder extends AbstractBufferBuilder {
         MemorySegment sealedOffsets = offsetsBuffer.asSlice(0, paddedOffsetsBytes);
         MemorySegment sealedData = dataBuffer.asSlice(0, paddedDataBytes);
 
-        return new UTF8Buffer(name, arena, logicalLength, 0, sealedValidity, sealedOffsets, sealedData);
+        return new UTF8Buffer(name, arena, logicalLength, 0, sealedValidity, sealedOffsets, sealedData, nullCount);
     }
 }

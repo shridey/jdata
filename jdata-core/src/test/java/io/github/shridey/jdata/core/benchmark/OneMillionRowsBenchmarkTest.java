@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -43,17 +44,18 @@ class OneMillionRowsBenchmarkTest {
         results.add(benchmarkPooledVsOsArena());
         results.add(benchmarkPrimitiveBuilderIngest());
         results.add(benchmarkChunkedStreamingIngest());
+        results.add(benchmarkUtf8ZeroAllocSimdScan());
         results.add(benchmarkOffHeapDictionaryEncodeAndDecode());
         results.add(benchmarkBitmapAndTableFilter());
         results.add(benchmarkZeroCopyFfiStreamRoundtrip());
 
         printReport(results);
-        assertEquals(6, results.size());
+        assertEquals(7, results.size());
     }
 
     private static BenchmarkResult benchmarkPooledVsOsArena() {
         int cycles = 500;
-        int rowsPerCycle = 16_384; // 128 KB per column
+        int rowsPerCycle = 16_384;
 
         try (ArrowMemoryPool pool = new ArrowMemoryPool(4L * 1024L * 1024L, 4)) {
             for (int w = 0; w < WARMUP_ITERS; w++) {
@@ -172,6 +174,48 @@ class OneMillionRowsBenchmarkTest {
 
             double avgMs = (totalNanos / (double) MEASURE_ITERS) / 1_000_000.0;
             return new BenchmarkResult("ChunkedBufferBuilder (Zero-Copy Rollover)", ROWS, avgMs);
+        }
+    }
+
+    private static BenchmarkResult benchmarkUtf8ZeroAllocSimdScan() {
+        String[] categories = new String[16];
+        for (int i = 0; i < categories.length; i++) {
+            categories[i] = "REGION_CODE_" + i;
+        }
+
+        try (Arena setupArena = Arena.ofConfined()) {
+            String[] rawStrings = new String[ROWS];
+            for (int i = 0; i < ROWS; i++) {
+                rawStrings[i] = categories[i & 15];
+            }
+            UTF8Buffer utf8Col = UTF8Buffer.allocate(setupArena, "region", rawStrings);
+            MemorySegment target = MemorySegment.ofArray("REGION_CODE_7".getBytes(StandardCharsets.UTF_8));
+
+            for (int w = 0; w < WARMUP_ITERS; w++) {
+                long matches = 0;
+                for (int i = 0; i < ROWS; i++) {
+                    if (utf8Col.equalsBytes(i, target)) {
+                        matches++;
+                    }
+                }
+                assertEquals(ROWS / 16, matches);
+            }
+
+            long totalNanos = 0L;
+            for (int m = 0; m < MEASURE_ITERS; m++) {
+                long t0 = System.nanoTime();
+                long matches = 0;
+                for (int i = 0; i < ROWS; i++) {
+                    if (utf8Col.equalsBytes(i, target)) {
+                        matches++;
+                    }
+                }
+                totalNanos += (System.nanoTime() - t0);
+                assertEquals(ROWS / 16, matches);
+            }
+
+            double avgMs = (totalNanos / (double) MEASURE_ITERS) / 1_000_000.0;
+            return new BenchmarkResult("UTF8Buffer Zero-Alloc SIMD equalsBytes()", ROWS, avgMs);
         }
     }
 
@@ -308,10 +352,10 @@ class OneMillionRowsBenchmarkTest {
         String border = "+-----------------------------------------------+--------------+--------------+------------------+";
         System.out.println("\n" + border);
         System.out.printf(Locale.ROOT, "| %-45s | %12s | %12s | %16s |%n",
-                "jdata-core Benchmark Operation", "Rows", "Avg Time", "Throughput");
+                "jdata-core 1-Million-Row Benchmark", "Rows", "Avg Time", "Throughput");
         System.out.println(border);
         for (BenchmarkResult r : results) {
-            double millionRowsPerSec = (r.rows / (r.avgMillis / 1000.0)) / ROWS;
+            double millionRowsPerSec = (r.rows / (r.avgMillis / 1000.0)) / 1_000_000.0;
             System.out.printf(Locale.ROOT, "| %-45s | %,12d | %9.2f ms | %10.1f M/sec |%n",
                     r.name, r.rows, r.avgMillis, millionRowsPerSec);
         }

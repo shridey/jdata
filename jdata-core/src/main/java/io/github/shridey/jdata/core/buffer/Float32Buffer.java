@@ -15,7 +15,12 @@ public final class Float32Buffer extends AbstractDataBuffer {
     private final MemorySegment dataBuffer;
 
     Float32Buffer(String name, Arena arena, long length, long offset, MemorySegment validityBitmap, MemorySegment dataBuffer) {
-        super(name, arena, length, offset, validityBitmap);
+        this(name, arena, length, offset, validityBitmap, dataBuffer, -1L);
+    }
+
+    Float32Buffer(String name, Arena arena, long length, long offset,
+                  MemorySegment validityBitmap, MemorySegment dataBuffer, long knownNullCount) {
+        super(name, arena, length, offset, validityBitmap, knownNullCount);
         this.dataBuffer = dataBuffer;
     }
 

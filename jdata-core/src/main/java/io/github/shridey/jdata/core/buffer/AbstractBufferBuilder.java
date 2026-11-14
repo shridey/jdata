@@ -29,6 +29,9 @@ public abstract sealed class AbstractBufferBuilder permits
     /** The number of logical rows appended so far. */
     protected long logicalLength = 0;
 
+    /** The number of null rows appended so far. */
+    protected long nullCount = 0;
+
     /** The off-heap validity bitmap segment (1 bit per row, LSB-0 ordered, 1 = valid, 0 = null). */
     protected MemorySegment validityBitmap;
 
@@ -100,14 +103,19 @@ public abstract sealed class AbstractBufferBuilder permits
     protected abstract void resizeAdditionalLogicalBuffers(long newLogicalCapacity);
 
     /**
-     * Clears the validity bit at {@link #logicalLength} to mark the current row as null.
+     * Clears the validity bit at {@link #logicalLength} to mark the current row as null
+     * and increments {@link #nullCount}.
      */
     protected void markCurrentNull() {
         long byteIndex = logicalLength >>> 3;
         int bitIndex = (int) (logicalLength & 7L);
+        int mask = 1 << bitIndex;
 
         byte b = validityBitmap.get(ValueLayout.JAVA_BYTE, byteIndex);
-        validityBitmap.set(ValueLayout.JAVA_BYTE, byteIndex, (byte) (b & ~(1 << bitIndex)));
+        if ((b & mask) != 0) {
+            validityBitmap.set(ValueLayout.JAVA_BYTE, byteIndex, (byte) (b & ~mask));
+            nullCount++;
+        }
     }
 
     /**
@@ -126,6 +134,15 @@ public abstract sealed class AbstractBufferBuilder permits
      */
     public long length() {
         return logicalLength;
+    }
+
+    /**
+     * Returns the number of null rows appended to this builder so far in O(1) time.
+     *
+     * @return the current null count
+     */
+    public long nullCount() {
+        return nullCount;
     }
 
     /**

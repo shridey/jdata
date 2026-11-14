@@ -208,6 +208,6 @@ public final class BooleanBufferBuilder extends AbstractBufferBuilder {
         MemorySegment sealedValidity = validityBitmap.asSlice(0, paddedBytes);
         MemorySegment sealedData = dataBuffer.asSlice(0, paddedBytes);
 
-        return new BooleanBuffer(name, arena, logicalLength, 0, sealedValidity, sealedData);
+        return new BooleanBuffer(name, arena, logicalLength, 0, sealedValidity, sealedData, nullCount);
     }
 }
